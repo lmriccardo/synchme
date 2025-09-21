@@ -3,10 +3,10 @@ package main
 import (
 	"fmt"
 
-	"github.com/username/app-name/internal/app"
+	"github.com/lmriccardo/synchme/internal/client"
 )
 
 func main() {
 	fmt.Println("Starting app ...")
-	app.Run()
+	client.Run()
 }

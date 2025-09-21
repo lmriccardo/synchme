@@ -7,7 +7,7 @@ root = "."
 tmp_dir = "tmp"
 
 # Name of the temporary binary
-bin = "tmp/my-go-app"
+bin = "tmp/synchme"
 
 # Command to run the app
 cmd = "make run"

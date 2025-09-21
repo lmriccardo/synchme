@@ -3,7 +3,7 @@ package tests
 import (
 	"testing"
 
-	"github.com/username/app-name/pkg/utils"
+	utils "github.com/lmriccardo/synchme/internal/shared"
 )
 
 func TestToUpper(t *testing.T) {
