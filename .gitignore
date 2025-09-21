@@ -1,0 +1,42 @@
+# Go modules
+go.sum
+*.modcache
+
+# Build outputs
+/bin/
+/build/
+/dist/
+/*.exe
+/*.exe~
+/*.dll
+/*.so
+/*.dylib
+
+# Test binary
+*.test
+
+# IDE / editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Devcontainer temporary files
+.devcontainer/.vscode-remote/
+
+# Dependency directories
+/vendor/
+
+# Coverage reports
+coverage.out
+*.coverprofile
+
+# Misc
+.env

@@ -1,0 +1,30 @@
+{
+  "name": "Go Dev Container",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "runArgs": ["--privileged", "--cap-add=all"],
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "go.useLanguageServer": true,
+        "go.gopath": "/go",
+        "go.lintTool": "golangci-lint",
+        "editor.formatOnSave": true
+      },
+      "extensions": [
+        "golang.Go",
+        "ms-azuretools.vscode-docker",
+        "eamodio.gitlens",
+        "Postman.postman-for-vscode",
+        "vivaxy.vscode-conventional-commits",
+        "mhutchie.git-graph",
+        "VisualStudioExptTeam.vscodeintellicode",
+        "ritwickdey.LiveServer",
+        "redhat.vscode-yaml"
+      ]
+    }
+  },
+  "remoteUser": "vscode",
+  "postCreateCommand": "go mod tidy"
+}
