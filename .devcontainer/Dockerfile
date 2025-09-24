@@ -46,3 +46,4 @@ RUN go install github.com/go-delve/delve/cmd/dlv@latest \
     && go install github.com/golang/mock/mockgen@latest
 
 RUN go mod download github.com/fsnotify/fsnotify@v1.9.0
+RUN go mod download github.com/sergi/go-diff@v1.4.0

@@ -15,20 +15,23 @@ func Run() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Creates the producer consumer communication channel
+	ch := NewChannel(100)
+	defer ch.Close()
+
 	// Creates a new producer with 0 chan buffer size
-	producer, ch, err := NewProducer(0)
+	producer, err := NewProducer(ch)
 	if err != nil {
 		log.Fatal(err)
 	}
 
 	defer producer.Close()
 
-	producer.AddPath("/home/vscode/prova/ciao1.txt", false)
-	producer.AddPath("/home/vscode/prova/prova1", true)
+	producer.AddPath("/home/vscode/prova", true)
 
 	// Create the consumer with the Producer Channel
 	consumer := NewConsumer(ch)
-	consumer.Filter(fsnotify.Chmod | fsnotify.Write) // Filters the chmod and write events
+	consumer.Filter(fsnotify.Chmod) // Filters the chmod and write events
 
 	go producer.Run(ctx)
 	go consumer.Run(ctx)
