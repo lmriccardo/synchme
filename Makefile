@@ -1,36 +1,55 @@
-BINDIR=bin
 CLIENT_NAME=synchme-client
 SERVER_NAME=synchme-server
 CLIENT_CMD=./cmd/$(CLIENT_NAME)
 SERVER_CMD=./cmd/$(SERVER_NAME)
 
-.PHONY: all build client server run-client run-server test lint clean help
+# Default target OS/ARCH (can override with "make GOOS=windows")
+GOOS ?= linux
+GOARCH ?= amd64
+
+BINDIR=bin/$(GOOS)
+
+# Add .exe suffix on Windows
+ifeq ($(GOOS),windows)
+    EXE=.exe
+else
+    EXE=
+endif
+
+.PHONY: all build client server run-client run-server demo test lint clean help
 
 all: build
 
 build: client server
 
 client:
-	@echo "Building client..."
-	go build -o $(BINDIR)/$(CLIENT_NAME) $(CLIENT_CMD)
+	@echo "Building client for $(GOOS)/$(GOARCH)..."
+	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -o $(BINDIR)/$(CLIENT_NAME)$(EXE) $(CLIENT_CMD)
 
 server:
-	@echo "Building server..."
-	go build -o $(BINDIR)/$(SERVER_NAME) $(SERVER_CMD)
+	@echo "Building server for $(GOOS)/$(GOARCH)..."
+	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -o $(BINDIR)/$(SERVER_NAME)$(EXE) $(SERVER_CMD)
 
 run-client: client
-	$(BINDIR)/$(CLIENT_NAME)
+	$(BINDIR)/$(CLIENT_NAME)$(EXE)
 
 run-server: server
-	$(BINDIR)/$(SERVER_NAME)
+	$(BINDIR)/$(SERVER_NAME)$(EXE)
 
 # Run server in background, then client
 demo: server client
-	$(BINDIR)/$(SERVER_NAME) & 
+ifeq ($(GOOS),windows)
+	# Windows: use start /B for background process
+	start /B $(BINDIR)/$(SERVER_NAME)$(EXE)
+	timeout /t 2 > nul
+	$(BINDIR)/$(CLIENT_NAME)$(EXE)
+else
+	# Unix-like
+	$(BINDIR)/$(SERVER_NAME)$(EXE) & \
 	SERVER_PID=$$!; \
 	sleep 2; \
-	$(BINDIR)/$(CLIENT_NAME); \
-	kill $$SERVER_PID
+	$(BINDIR)/$(CLIENT_NAME)$(EXE);
+endif
 
 test:
 	go test ./... -v -race

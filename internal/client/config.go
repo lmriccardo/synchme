@@ -2,6 +2,7 @@ package client
 
 import (
 	"net"
+	"path/filepath"
 	"reflect"
 	"slices"
 
@@ -48,6 +49,7 @@ type Network struct {
 
 // Root struct representing the whole TOML
 type ClientConf struct {
+	Path            string
 	Config          Config          `toml:"Config"`
 	FS_Notification FS_Notification `toml:"FileSystemNotification"`
 	Network         Network         `toml:"Network"`
@@ -121,7 +123,7 @@ func RegisterValidator(v *validator.Validate, name string, callback VCallback) {
 func ReadConf(path string) *ClientConf {
 	var synchme_client_conf ClientConf
 	if _, err := toml.DecodeFile(path, &synchme_client_conf); err != nil {
-		ERROR("Fatal Error: Cannot read configuration file ", path, " due to ", err)
+		FATAL("Fatal Error: Configuration Error ", err)
 	}
 
 	validate := validator.New(validator.WithRequiredStructEnabled())
@@ -142,5 +144,6 @@ func ReadConf(path string) *ClientConf {
 		return nil
 	}
 
+	synchme_client_conf.Path, _ = filepath.Abs(path)
 	return &synchme_client_conf
 }

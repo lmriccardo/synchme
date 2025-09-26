@@ -28,5 +28,5 @@ func ERROR(msg ...any) {
 }
 
 func FATAL(msg ...any) {
-	log.Fatal(string(Red), "[FATAL]", string(Reset), fmt.Sprint(msg...))
+	log.Fatalln(string(Red), "[FATAL]", string(Reset), fmt.Sprint(msg...))
 }

@@ -38,6 +38,11 @@ func NewProducer(pc_ch *PC_Channel, conf *ClientConf) (*FileWatcherProducer, err
 	producer.AddPaths(watchlist...)
 	producer.LoadCache() // Load cache with file contents
 
+	// Add the configuration path if the flag is set to true
+	if *producer.Config.Config.WatchConf {
+		producer.AddPath(producer.Config.Path)
+	}
+
 	return producer, nil
 }
 
@@ -170,6 +175,13 @@ func (p *FileWatcherProducer) Produce(event fsnotify.Event) {
 	parentPath := filepath.Dir(event.Name)
 
 	if slices.Contains(p.FileList, event.Name) || slices.Contains(p.FileList, parentPath) {
+
+		// If the current event is releated to the configuration file, then it
+		// automatically filters out the remove event
+		if event.Name == p.Config.Path && event.Has(fsnotify.Remove) {
+			WARN("Configuration file has been deleted, continuing with loaded values!!")
+			return
+		}
 
 		// If it is a remove operation than we shall not try to
 		// retrieve information about that file, since it now
