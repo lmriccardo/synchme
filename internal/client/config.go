@@ -2,6 +2,8 @@ package client
 
 import (
 	"net"
+	"reflect"
+	"slices"
 
 	"github.com/BurntSushi/toml"
 	"github.com/go-playground/validator/v10"
@@ -14,7 +16,6 @@ import (
 type Config struct {
 	WatchConf *bool `toml:"watch_conf" validate:"required,boolean"`
 	SynchConf *bool `toml:"synch_conf" validate:"required,boolean"`
-	Restart   *bool `toml:"restart" validate:"required,boolean"`
 }
 
 // FileSystemNotification-releated settings
@@ -29,6 +30,8 @@ type FS_Notification struct {
 	BaseTTL       int64    `toml:"caching_base_ttl" validate:"required,numeric,min=1"`
 	MaxTTL        int64    `toml:"caching_max_ttl" validate:"required,numeric,gtefield=BaseTTL"`
 	ExpirationInt int64    `toml:"expiration_interval" validate:"required,numeric,min=1"`
+	SynchInterval float64  `toml:"synch_interval" validate:"required"`
+	Filters       []string `toml:"filters" validate:"required,fs_op"`
 }
 
 // Network-releated settings
@@ -81,6 +84,32 @@ func IpOrIface(v *validator.Validate) func(fl validator.FieldLevel) bool {
 	}
 }
 
+func ValidFilters(v *validator.Validate) func(fl validator.FieldLevel) bool {
+	return func(fl validator.FieldLevel) bool {
+		filters := fl.Field()
+
+		// Check that it is a slice
+		if filters.Kind() != reflect.Slice {
+			return false
+		}
+
+		possible_values := []string{"WRITE", "CREATE", "RENAME", "REMOVE"}
+
+		for i := 0; i < filters.Len(); i++ {
+			elem := filters.Index(i)
+			if elem.Kind() != reflect.String || elem.String() == "" {
+				return false
+			}
+
+			if !slices.Contains(possible_values, elem.String()) {
+				return false
+			}
+		}
+
+		return true
+	}
+}
+
 type VCallback func(v *validator.Validate) func(fl validator.FieldLevel) bool
 
 func RegisterValidator(v *validator.Validate, name string, callback VCallback) {
@@ -100,11 +129,12 @@ func ReadConf(path string) *ClientConf {
 	// Register a new validator to check if the network relay is either an IP or hostname
 	RegisterValidator(validate, "ip_or_hostname", IpOrHostname)
 	RegisterValidator(validate, "ip_or_iface", IpOrIface)
+	RegisterValidator(validate, "fs_op", ValidFilters)
 
 	if err := validate.Struct(synchme_client_conf); err != nil {
 		if errs, ok := err.(validator.ValidationErrors); ok {
 			for _, e := range errs {
-				WARN("[Conf Field: ", e.Field(), " ] Invalid for tag=",
+				WARN("[Conf Field: ", e.Field(), "] Invalid for tag=",
 					e.Tag(), " with value=", e.Value())
 			}
 		}

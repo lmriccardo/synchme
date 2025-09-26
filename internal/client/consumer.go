@@ -23,12 +23,36 @@ func NewConsumer(pc_ch *PC_Channel, conf *ClientConf) *FileEventConsumer {
 // NewConsumerWithMask creates a new FileEventConsumer on the input channel
 // which accepts only the input mask of operations
 func NewConsumerWithMask(pc_ch *PC_Channel, conf *ClientConf, mask fsnotify.Op) *FileEventConsumer {
-	return &FileEventConsumer{pc_ch, mask, conf}
+	consumer := &FileEventConsumer{pc_ch, mask, conf}
+	consumer.Filter(fsnotify.Chmod) // Filters the chmod and write events
+
+	// Filters also all the operations in the configuration
+	for _, operation := range conf.FS_Notification.Filters {
+		consumer.FilterByString(operation)
+		INFO("Applied Filter: ", operation)
+	}
+
+	return consumer
 }
 
 // Filter removes the input operation from the mask
 func (c *FileEventConsumer) Filter(op fsnotify.Op) {
 	c.OpMask &^= op
+}
+
+func (c *FileEventConsumer) FilterByString(op string) {
+	switch op {
+	case "WRITE":
+		c.Filter(fsnotify.Write)
+	case "REMOVE":
+		c.Filter(fsnotify.Remove)
+	case "RENAME":
+		c.Filter(fsnotify.Rename)
+	case "CREATE":
+		c.Filter(fsnotify.Create)
+	default:
+		ERROR("No operation named: ", op)
+	}
 }
 
 // Allow includes an operation into the mask
@@ -38,13 +62,28 @@ func (c *FileEventConsumer) Allow(op fsnotify.Op) {
 	}
 }
 
+func (c *FileEventConsumer) AllowByString(op string) {
+	switch op {
+	case "WRITE":
+		c.Allow(fsnotify.Write)
+	case "REMOVE":
+		c.Allow(fsnotify.Remove)
+	case "RENAME":
+		c.Allow(fsnotify.Rename)
+	case "CREATE":
+		c.Allow(fsnotify.Create)
+	default:
+		ERROR("No operation named: ", op)
+	}
+}
+
 // Consume consumes an event to perform some kind of operations
 func (c *FileEventConsumer) Consume(event *NotificationEvent) error {
 	if !c.OpMask.Has(event.EventObj.Op) {
 		return nil
 	}
 
-	log.Println(event.EventObj)
+	INFO(event)
 
 	// Switch between possible operations
 	switch event.EventObj.Op {
@@ -52,14 +91,16 @@ func (c *FileEventConsumer) Consume(event *NotificationEvent) error {
 		// Create the diffmatchpath object
 		dm := diffmatchpatch.New()
 		patches := dm.PatchMake(event.PrevContent, event.CurrContent)
-		log.Println(dm.PatchToText(patches))
+
+		if len(patches) > 0 {
+			log.Println(dm.PatchToText(patches))
+		}
 
 	case fsnotify.Create:
 		// A new folder or file has been created
 		c.Channel.ConsumerCh <- event.EventObj.Name
 	}
 
-	// If the event is write then we need to
 	return nil
 }
 

@@ -1,11 +1,26 @@
 package client
 
-import "github.com/fsnotify/fsnotify"
+import (
+	"fmt"
+	"time"
+
+	"github.com/fsnotify/fsnotify"
+)
 
 type NotificationEvent struct {
 	EventObj    fsnotify.Event // The event object from the fsnotify
 	PrevContent string         // The previous file content
 	CurrContent string         // The current file content
+	Timestamp   time.Time      // The timestamp of the event
+}
+
+func (ev *NotificationEvent) String() string {
+	return fmt.Sprintf(
+		"<%v> %v at %v",
+		ev.EventObj.Op,
+		ev.EventObj.Name,
+		ev.Timestamp.Format(time.RFC3339),
+	)
 }
 
 type PC_Channel struct {

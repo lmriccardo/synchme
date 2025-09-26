@@ -1,7 +1,6 @@
 [Config]
 watch_conf = true  # The current file is automatically watched
 synch_conf = false # If the conf change, remote synch is provided
-restart    = false    # If the conf change, the service is automatically restarted
 
 [FileSystemNotification]
 # The absolute paths of file/folder to watch
@@ -13,6 +12,8 @@ folder_recursive    = true  # Perform recursive search on added folders
 caching_base_ttl    = 900   # [seconds] Time To Live of content in the cache
 caching_max_ttl     = 10800 # [seconds] Maximum Time To Live of the content in the cache
 expiration_interval = 1     # [seconds] Interval of time between two expiration checks
+synch_interval      = 0.01  # [seconds] The minimum interval between two equal events to synchronize
+filters             = []    # FS Operations to be filtered (WRITE, CREATE, REMOVE, RENAME)
 
 [Network]
 relay_host = "127.0.0.1" # The IP address or the hostname of the relay server

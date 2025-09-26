@@ -17,6 +17,8 @@ type FileWatcherProducer struct {
 	FileList  [](string)        // List of files watched by the Watcher
 	FileCache *Cache            // Maps the file with its content
 	Config    *ClientConf       // Client configuration structure
+	LastEvent NotificationEvent // Last produced event
+	Flag      bool              // True if has produced, False otherwise
 }
 
 // CreateProducer creates a new EventProducer and returns the producer and its event channel.
@@ -28,11 +30,13 @@ func NewProducer(pc_ch *PC_Channel, conf *ClientConf) (*FileWatcherProducer, err
 	}
 
 	cache := NewCache(time.Duration(conf.FS_Notification.MaxTTL) * time.Second)
-	producer := &FileWatcherProducer{pc_ch, watcher, []string{}, cache, conf}
+	producer := &FileWatcherProducer{
+		pc_ch, watcher, []string{}, cache, conf, NotificationEvent{}, false}
 
 	// Read the watchlist from the configuration
 	watchlist := conf.FS_Notification.Paths
 	producer.AddPaths(watchlist...)
+	producer.LoadCache() // Load cache with file contents
 
 	return producer, nil
 }
@@ -59,6 +63,32 @@ func (p *FileWatcherProducer) AddPath(path string) {
 	p.AddPathWithRecurse(path, *p.Config.FS_Notification.Recursive)
 }
 
+func (p *FileWatcherProducer) LoadCache() {
+	for _, file := range p.FileList {
+		if info, err := os.Stat(file); err == nil && !info.IsDir() {
+			base_ttl := time.Duration(p.Config.FS_Notification.BaseTTL) * time.Second
+			p.FileCache.Set(file, ReadFileContent(file), base_ttl, true)
+		}
+	}
+}
+
+func (p *FileWatcherProducer) WalkDir(path string) fs.WalkDirFunc {
+	return func(subPath string, d fs.DirEntry, err error) error {
+		if err != nil || subPath == path {
+			return nil // Continue reading
+		}
+
+		if d.IsDir() {
+			p.AddPathWithRecurse(subPath, false)
+		} else {
+			p.FileList = append(p.FileList, subPath)
+			INFO("Path ", subPath, " added to the watchlist")
+		}
+
+		return nil
+	}
+}
+
 func (p *FileWatcherProducer) AddPathWithRecurse(path string, recursive bool) {
 	// Check if the input path is absolute or not
 	abs_path, err := filepath.Abs(path)
@@ -81,8 +111,6 @@ func (p *FileWatcherProducer) AddPathWithRecurse(path string, recursive bool) {
 		// If the input path is a file we need to take the parent folder
 		// as suggested in the fsnotify official documentation
 		parent_dir := filepath.Dir(path)
-		base_ttl := time.Duration(p.Config.FS_Notification.BaseTTL) * time.Second
-		p.FileCache.Set(path, ReadFileContent(path), base_ttl, true)
 
 		if err := p.Watcher.Add(parent_dir); err != nil {
 			ERROR("Input path will be ignored as result of error: ", err)
@@ -99,16 +127,7 @@ func (p *FileWatcherProducer) AddPathWithRecurse(path string, recursive bool) {
 
 	// If recursive is on, then we need also to add all the subfolder
 	if recursive {
-		callback := func(subPath string, d fs.DirEntry, err error) error {
-			if err != nil || subPath == path {
-				return nil // Continue reading
-			}
-
-			p.AddPathWithRecurse(subPath, false)
-			return nil
-		}
-
-		_ = filepath.WalkDir(path, callback)
+		_ = filepath.WalkDir(path, p.WalkDir(path))
 	}
 }
 
@@ -119,8 +138,33 @@ func (p *FileWatcherProducer) Close() {
 	}
 }
 
+func (p *FileWatcherProducer) ProduceEvent(event fsnotify.Event, prev, curr string, time time.Time) {
+	curr_event := NotificationEvent{event, prev, curr, time}
+	p.Channel.EventCh <- curr_event
+	p.LastEvent = curr_event
+	p.Flag = true
+}
+
 // Produce puts the received event into the channel
 func (p *FileWatcherProducer) Produce(event fsnotify.Event) {
+	curr_time := time.Now() // Take the current time
+
+	// Before producing events we need to check if the current event
+	// is the same as previous. In that case, there must be a
+	// threshold to validate that the new event should be produced or not
+	if p.Flag {
+		prev_name := p.LastEvent.EventObj.Name
+		prev_op := p.LastEvent.EventObj.Op
+
+		if prev_name == event.Name && prev_op == event.Op {
+			prev_timestamp := p.LastEvent.Timestamp
+			threshold := p.Config.FS_Notification.SynchInterval * float64(time.Second)
+			if diff := curr_time.Sub(prev_timestamp); diff < time.Duration(threshold) {
+				return
+			}
+		}
+	}
+
 	// Check if the file list contains the watched file or folder. Watching
 	// folders also provides CREATE event handling of new children
 	parentPath := filepath.Dir(event.Name)
@@ -132,7 +176,7 @@ func (p *FileWatcherProducer) Produce(event fsnotify.Event) {
 		// does not exists anymore.
 		if event.Has(fsnotify.Remove) {
 			p.FileCache.Remove(event.Name) // Remove the entry from the cache
-			p.Channel.EventCh <- NotificationEvent{event, "", ""}
+			p.ProduceEvent(event, "", "", curr_time)
 			return
 		}
 
@@ -160,7 +204,7 @@ func (p *FileWatcherProducer) Produce(event fsnotify.Event) {
 			p.FileCache.Modify(event.Name, curr_content)
 		}
 
-		p.Channel.EventCh <- NotificationEvent{event, prev_content, curr_content}
+		p.ProduceEvent(event, prev_content, curr_content, curr_time)
 	}
 }
 

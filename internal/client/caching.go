@@ -23,7 +23,7 @@ func (ce *CacheEntry) String() string {
 	return fmt.Sprintf(
 		"Entry{ Key=%v, Expiration=%v, TTL=%v }",
 		ce.Key,
-		ce.Expiration,
+		ce.Expiration.Format(time.RFC3339),
 		ce.TimeToLive)
 }
 

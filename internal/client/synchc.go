@@ -6,8 +6,6 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
-
-	"github.com/fsnotify/fsnotify"
 )
 
 func Run(conf_file_path string) {
@@ -36,7 +34,6 @@ func Run(conf_file_path string) {
 
 	// Create the consumer with the Producer Channel
 	consumer := NewConsumer(ch, client_conf)
-	consumer.Filter(fsnotify.Chmod) // Filters the chmod and write events
 
 	go producer.Run(ctx)
 	go consumer.Run(ctx)
