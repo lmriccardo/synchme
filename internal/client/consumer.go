@@ -11,18 +11,19 @@ import (
 type FileEventConsumer struct {
 	Channel *PC_Channel // Read-only channel for fs events
 	OpMask  fsnotify.Op // Event Mask
+	Config  *ClientConf // Client configuration structure
 }
 
 // NewConsumer creates a new FileEventConsumer on the input channel
 // which accepts any kind of file operations.
-func NewConsumer(pc_ch *PC_Channel) *FileEventConsumer {
-	return NewConsumerWithMask(pc_ch, 0x1F)
+func NewConsumer(pc_ch *PC_Channel, conf *ClientConf) *FileEventConsumer {
+	return NewConsumerWithMask(pc_ch, conf, 0x1F)
 }
 
 // NewConsumerWithMask creates a new FileEventConsumer on the input channel
 // which accepts only the input mask of operations
-func NewConsumerWithMask(pc_ch *PC_Channel, mask fsnotify.Op) *FileEventConsumer {
-	return &FileEventConsumer{pc_ch, mask}
+func NewConsumerWithMask(pc_ch *PC_Channel, conf *ClientConf, mask fsnotify.Op) *FileEventConsumer {
+	return &FileEventConsumer{pc_ch, mask, conf}
 }
 
 // Filter removes the input operation from the mask
@@ -68,15 +69,15 @@ func (c *FileEventConsumer) Run(ctx context.Context) {
 		select {
 		case event, ok := <-c.Channel.EventCh:
 			if !ok {
-				log.Println("Event channel closed, consumer exiting")
+				INFO("Event channel closed, consumer exiting")
 				return
 			}
 
 			if err := c.Consume(&event); err != nil {
-				log.Println(err)
+				ERROR("Error: ", err)
 			}
 		case <-ctx.Done():
-			log.Println("Consumer canceled:", ctx.Err())
+			INFO("Consumer canceled:", ctx.Err())
 			return
 		}
 	}

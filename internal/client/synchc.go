@@ -2,7 +2,6 @@ package client
 
 import (
 	"context"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
@@ -11,7 +10,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-func Run() {
+func Run(conf_file_path string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -19,18 +18,24 @@ func Run() {
 	ch := NewChannel(100)
 	defer ch.Close()
 
+	// Load the configuration
+	client_conf := ReadConf(conf_file_path)
+	if client_conf == nil {
+		return
+	}
+
+	INFO("Read configuration ", conf_file_path)
+
 	// Creates a new producer with 0 chan buffer size
-	producer, err := NewProducer(ch)
+	producer, err := NewProducer(ch, client_conf)
 	if err != nil {
-		log.Fatal(err)
+		FATAL("Fatal Error: ", err)
 	}
 
 	defer producer.Close()
 
-	producer.AddPath("/home/vscode/prova", true)
-
 	// Create the consumer with the Producer Channel
-	consumer := NewConsumer(ch)
+	consumer := NewConsumer(ch, client_conf)
 	consumer.Filter(fsnotify.Chmod) // Filters the chmod and write events
 
 	go producer.Run(ctx)

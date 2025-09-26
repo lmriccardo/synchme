@@ -47,3 +47,5 @@ RUN go install github.com/go-delve/delve/cmd/dlv@latest \
 
 RUN go mod download github.com/fsnotify/fsnotify@v1.9.0
 RUN go mod download github.com/sergi/go-diff@v1.4.0
+RUN go mod download github.com/BurntSushi/toml@v1.5.0
+RUN go mod download github.com/go-playground/validator/v10@v10.27.0

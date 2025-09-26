@@ -2,36 +2,37 @@ package client
 
 import (
 	"context"
-	"fmt"
 	"io/fs"
-	"log"
 	"os"
 	"path/filepath"
 	"slices"
-	"sync"
+	"time"
 
 	"github.com/fsnotify/fsnotify"
 )
 
 type FileWatcherProducer struct {
-	Channel     *PC_Channel         // Write-only channel for fs events
-	Watcher     *fsnotify.Watcher   // The watcher for notifications on events
-	FileList    [](string)          // List of files watched by the Watcher
-	FileContent map[string](string) // Maps the file with its content
+	Channel   *PC_Channel       // Write-only channel for fs events
+	Watcher   *fsnotify.Watcher // The watcher for notifications on events
+	FileList  [](string)        // List of files watched by the Watcher
+	FileCache *Cache            // Maps the file with its content
+	Config    *ClientConf       // Client configuration structure
 }
 
 // CreateProducer creates a new EventProducer and returns the producer and its event channel.
 // bufferSize specifies the channel buffer size; if <= 0, a default of 100 is used.
-func NewProducer(pc_ch *PC_Channel) (*FileWatcherProducer, error) {
+func NewProducer(pc_ch *PC_Channel, conf *ClientConf) (*FileWatcherProducer, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err
 	}
 
-	file_map := map[string]string{}
-	file_list := []string{}
+	cache := NewCache(time.Duration(conf.FS_Notification.MaxTTL) * time.Second)
+	producer := &FileWatcherProducer{pc_ch, watcher, []string{}, cache, conf}
 
-	producer := &FileWatcherProducer{pc_ch, watcher, file_list, file_map}
+	// Read the watchlist from the configuration
+	watchlist := conf.FS_Notification.Paths
+	producer.AddPaths(watchlist...)
 
 	return producer, nil
 }
@@ -40,25 +41,36 @@ func NewProducer(pc_ch *PC_Channel) (*FileWatcherProducer, error) {
 func ReadFileContent(path string) string {
 	content, err := os.ReadFile(path)
 	if err != nil {
-		log.Printf("Impossible reading %v", path)
+		WARN("Impossible reading ", path)
 		return ""
 	}
 
 	return string(content)
 }
 
-func (p *FileWatcherProducer) AddPath(path string, recursive bool) {
+// AddPaths adds a number of paths to the current watchlist
+func (p *FileWatcherProducer) AddPaths(paths ...string) {
+	for _, path := range paths {
+		p.AddPath(path)
+	}
+}
+
+func (p *FileWatcherProducer) AddPath(path string) {
+	p.AddPathWithRecurse(path, *p.Config.FS_Notification.Recursive)
+}
+
+func (p *FileWatcherProducer) AddPathWithRecurse(path string, recursive bool) {
 	// Check if the input path is absolute or not
 	abs_path, err := filepath.Abs(path)
 	if err != nil {
-		fmt.Println("Error: ", err, ". Input path will be ignored")
+		ERROR("Input path will be ignored as result of error: ", err)
 		return
 	}
 
 	path = abs_path
 	info, err := os.Stat(path) // Take the stat of the input path
 	if err != nil {
-		log.Println("Error reading path:", err, ". Ingnored")
+		ERROR("Input path will be ignored as result of error: ", err)
 		return
 	}
 
@@ -69,55 +81,42 @@ func (p *FileWatcherProducer) AddPath(path string, recursive bool) {
 		// If the input path is a file we need to take the parent folder
 		// as suggested in the fsnotify official documentation
 		parent_dir := filepath.Dir(path)
-		p.FileContent[path] = ReadFileContent(path)
+		base_ttl := time.Duration(p.Config.FS_Notification.BaseTTL) * time.Second
+		p.FileCache.Set(path, ReadFileContent(path), base_ttl, true)
+
 		if err := p.Watcher.Add(parent_dir); err != nil {
-			log.Println("Error adding watch:", err, ". Ignored")
+			ERROR("Input path will be ignored as result of error: ", err)
 		}
+		INFO("Path ", path, " added to the watchlist")
 		return
 	}
 
 	if err := p.Watcher.Add(path); err != nil {
-		log.Println("Error adding watch:", err, ". Ignored")
+		ERROR("Input path will be ignored as result of error: ", err)
 	}
+
+	INFO("Path ", path, " added to the watchlist")
 
 	// If recursive is on, then we need also to add all the subfolder
 	if recursive {
-		_ = filepath.WalkDir(path,
-			func(subPath string, d fs.DirEntry, err error) error {
-				if err != nil {
-					return nil // Continue reading
-				}
+		callback := func(subPath string, d fs.DirEntry, err error) error {
+			if err != nil || subPath == path {
+				return nil // Continue reading
+			}
 
-				if d.IsDir() && subPath == path {
-					if err := p.Watcher.Add(subPath); err != nil {
-						log.Println("Error adding watch:", err, ". Ignored")
-					}
+			p.AddPathWithRecurse(subPath, false)
+			return nil
+		}
 
-					p.FileList = append(p.FileList, subPath)
-					return nil
-				}
-
-				// Check that the subpath is not the same input path
-				// If the current subpath is a file then we read
-				// its content and save it into the map
-				if !d.IsDir() && subPath != path {
-					p.FileContent[subPath] = ReadFileContent(subPath)
-				}
-
-				return nil
-			},
-		)
+		_ = filepath.WalkDir(path, callback)
 	}
 }
 
 // Attempt to close the watcher, otherwise log fatal the error
 func (p *FileWatcherProducer) Close() {
-	once := sync.Once{}
-	once.Do(func() {
-		if err := p.Watcher.Close(); err != nil {
-			log.Println("failed to close watcher:", err)
-		}
-	})
+	if err := p.Watcher.Close(); err != nil {
+		ERROR("Failed to close watcher: ", err)
+	}
 }
 
 // Produce puts the received event into the channel
@@ -125,27 +124,40 @@ func (p *FileWatcherProducer) Produce(event fsnotify.Event) {
 	// Check if the file list contains the watched file or folder. Watching
 	// folders also provides CREATE event handling of new children
 	parentPath := filepath.Dir(event.Name)
-	info, _ := os.Stat(event.Name)
 
 	if slices.Contains(p.FileList, event.Name) || slices.Contains(p.FileList, parentPath) {
 
+		// If it is a remove operation than we shall not try to
+		// retrieve information about that file, since it now
+		// does not exists anymore.
+		if event.Has(fsnotify.Remove) {
+			p.FileCache.Remove(event.Name) // Remove the entry from the cache
+			p.Channel.EventCh <- NotificationEvent{event, "", ""}
+			return
+		}
+
 		var prev_content string
 		var curr_content string
+
+		info, _ := os.Stat(event.Name)
 
 		if !info.IsDir() {
 			// Check if the current file is a key in the map. If it is not
 			// contained then, a new file or folder has been created,
 			// and we must insert into the map
 			var ok bool
-			prev_content, ok = p.FileContent[event.Name]
+			cache_content, ok := p.FileCache.GetWithDefault(event.Name, "")
 
 			if !ok {
-				p.FileContent[event.Name] = ""
+				base_ttl := time.Duration(p.Config.FS_Notification.BaseTTL) * time.Second
+				p.FileCache.Set(event.Name, cache_content, base_ttl, true)
 			}
+
+			prev_content = cache_content.(string)
 
 			// Set the new content into the map
 			curr_content = ReadFileContent(event.Name)
-			p.FileContent[event.Name] = curr_content
+			p.FileCache.Modify(event.Name, curr_content)
 		}
 
 		p.Channel.EventCh <- NotificationEvent{event, prev_content, curr_content}
@@ -154,6 +166,10 @@ func (p *FileWatcherProducer) Produce(event fsnotify.Event) {
 
 // The Producer loop which produces the events
 func (p *FileWatcherProducer) Run(ctx context.Context) {
+	// Starts the cache
+	exp_interval := p.Config.FS_Notification.ExpirationInt
+	p.FileCache.Run(ctx, time.Duration(exp_interval)*time.Second)
+
 	for {
 		select {
 		case event, ok := <-p.Watcher.Events:
@@ -167,17 +183,17 @@ func (p *FileWatcherProducer) Run(ctx context.Context) {
 			if !ok {
 				return
 			}
-			log.Println("error:", err)
+			ERROR("Error: ", err)
 		case content, ok := <-p.Channel.ConsumerCh:
 			if !ok {
 				return
 			}
 			// Recursive will always be false since it is either
 			// a new file or a new folder
-			p.AddPath(content, false)
+			p.AddPath(content)
 		case <-ctx.Done():
 			// When the context is closed then exit
-			log.Println("EventProducer canceled:", ctx.Err())
+			INFO("EventProducer canceled: ", ctx.Err())
 			return
 		}
 	}

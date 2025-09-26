@@ -3,7 +3,10 @@
   "build": {
     "dockerfile": "Dockerfile"
   },
-  "runArgs": ["--privileged", "--cap-add=all"],
+  "runArgs": [
+    "--privileged",
+    "--cap-add=all"
+  ],
   "customizations": {
     "vscode": {
       "settings": {
@@ -21,7 +24,8 @@
         "mhutchie.git-graph",
         "VisualStudioExptTeam.vscodeintellicode",
         "ritwickdey.LiveServer",
-        "redhat.vscode-yaml"
+        "redhat.vscode-yaml",
+        "tamasfe.even-better-toml"
       ]
     }
   },
