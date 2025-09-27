@@ -46,20 +46,32 @@ func (i InternalType) String() string {
 }
 
 type NotificationEvent struct {
-	Path      string                 // The path to the file causing the event
-	Op        InternalType           // Operation type
-	Patches   []diffmatchpatch.Patch // A list of patches applied
-	OldPath   string                 // Optional string representing the file old path
-	Timestamp time.Time              // The timestamp of the event
+	Path       string                 // The path to the file causing the event
+	Op         InternalType           // Operation type
+	Patches    []diffmatchpatch.Patch // A list of patches applied
+	OldPath    string                 // Optional string representing the file old path
+	Timestamp  time.Time              // The timestamp of the event
+	ReloadConf bool                   // True to reload the conf, false otherwise
 }
 
 func (ev NotificationEvent) String() string {
-	return fmt.Sprintf(
-		"<%v> %v at %v",
-		ev.Op,
-		ev.Path,
-		ev.Timestamp.Format(time.RFC3339),
-	)
+	ts := ev.Timestamp.Format(time.RFC3339)
+
+	switch {
+	case ev.Op.Has(Create | Remove):
+		return fmt.Sprintf("<%v> %v at %v", ev.Op, ev.Path, ts)
+	case ev.Op.Has(Write):
+		dmp := diffmatchpatch.New()
+
+		patches := ""
+		if len(ev.Patches) > 0 {
+			patches = "\n" + dmp.PatchToText(ev.Patches)
+		}
+
+		return fmt.Sprintf("<%v> %v at %v%v", ev.Op, ev.Path, ts, patches)
+	default:
+		return fmt.Sprintf("<%v> %v -> %v at %v", ev.Op, ev.OldPath, ev.Path, ts)
+	}
 }
 
 type WatcherChannel struct {

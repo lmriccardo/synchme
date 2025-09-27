@@ -19,7 +19,7 @@ func ReadFileContent(path string) string {
 
 // WalkDir returns a list of all subfolder and subfiles recursively
 func WalkDir(path string) []string {
-	result := []string{} // Initialize the return list
+	result := []string{path} // Initialize the return list
 
 	// If the input path is just a file, returns only the file
 	info, _ := os.Stat(path)

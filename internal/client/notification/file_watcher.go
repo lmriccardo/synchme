@@ -2,7 +2,6 @@ package notification
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -30,15 +29,15 @@ type FileWatcher struct {
 
 // CreateProducer creates a new EventProducer and returns the producer and its event channel.
 // bufferSize specifies the channel buffer size; if <= 0, a default of 100 is used.
-func NewFileWatcher(pc_ch *WatcherChannel, conf *config.ClientConf) (*FileWatcher, error) {
+func NewFileWatcher(ch *WatcherChannel, conf *config.ClientConf) (*FileWatcher, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err
 	}
 
 	cache := utils.NewCache(time.Duration(conf.FS_Notification.MaxTTL) * time.Second)
-	producer := &FileWatcher{
-		Channel:    pc_ch,
+	fwatcher := &FileWatcher{
+		Channel:    ch,
 		InternalCh: make(chan fsnotify.Event, 100),
 		Watcher:    watcher,
 		FileList:   []string{},
@@ -47,86 +46,140 @@ func NewFileWatcher(pc_ch *WatcherChannel, conf *config.ClientConf) (*FileWatche
 		LastEvent:  NotificationEvent{},
 		Flag:       false}
 
+	// Prepare the when producing the file
+	fwatcher.Reset()
+	return fwatcher, nil
+}
+
+// Attempt to close the watcher, otherwise log fatal the error
+func (fw *FileWatcher) Close() {
+	if err := fw.Watcher.Close(); err != nil {
+		utils.ERROR("Failed to close watcher: ", err)
+	}
+}
+
+// ResetWithConf resets the entire file watcher and load a new conf
+func (fw *FileWatcher) ResetWithConf(path string) {
+	fw.Config = config.ReadConf(path) // load the conf
+	fw.Reset()                        // Reset the watcher
+}
+
+// Reset resets the entire file watcher
+func (fw *FileWatcher) Reset() {
+	// Removes all watched file from the watcher
+	for _, file := range fw.Watcher.WatchList() {
+		_ = fw.Watcher.Remove(file)
+	}
+
+	fw.FileList = []string{}           // Empty the entire list of file of the file watcher
+	fw.FileCache.EraseCache()          // Erase the entire cache
+	fw.LastEvent = NotificationEvent{} // Remove the last saved event
+	fw.Flag = false
+
+	fw.loadConf() // Reload the configuration
+}
+
+// RemovePath removes a path from both the watchlist and internal list
+func (fw *FileWatcher) RemovePath(path string) {
+	if slices.Contains(fw.Watcher.WatchList(), path) {
+		if _, err := os.Stat(path); err == nil {
+			if err := fw.Watcher.Remove(path); err != nil {
+				utils.ERROR("Error RemovePath: ", err)
+			}
+		} else if os.IsNotExist(err) {
+			utils.INFO("Path already deleted, cleaning from watch list: ", path)
+		} else {
+			utils.ERROR("Stat error: ", err)
+		}
+	}
+
+	for index, element := range fw.FileList {
+		if element == path {
+			fw.FileList = append(fw.FileList[:index], fw.FileList[index+1:]...)
+			break
+		}
+	}
+}
+
+func (fw *FileWatcher) loadConf() {
 	// Read the watchlist from the configuration
-	watchlist := conf.FS_Notification.Paths
+	watchlist := fw.Config.FS_Notification.Paths
 
 	// Add the configuration to the watchlist if necessary
-	if *producer.Config.Config.WatchConf {
-		watchlist = append(watchlist, producer.Config.Path)
-		producer.FileList = []string{filepath.Dir(producer.Config.Path)}
+	if *fw.Config.Config.WatchConf {
+		watchlist = append(watchlist, fw.Config.Path)
+		fw.FileList = []string{filepath.Dir(fw.Config.Path)}
 	}
 
-	producer.AddPaths(watchlist...)
-	producer.loadCache() // Load cache with file contents
+	fw.AddPaths(watchlist...)
+	fw.loadCache() // Load cache with file contents
 
 	// Load the filters
-	producer.Filter(fsnotify.Chmod) // Filters the chmod and write events
+	fw.Filter(fsnotify.Chmod) // Filters the chmod and write events
 
 	// Filters also all the operations in the configuration
-	for _, operation := range conf.FS_Notification.Filters {
-		producer.FilterByString(operation)
+	for _, operation := range fw.Config.FS_Notification.Filters {
+		fw.FilterByString(operation)
 		utils.INFO("Applied Filter: ", operation)
 	}
-
-	return producer, nil
 }
 
 // Filter removes the input operation from the mask
-func (c *FileWatcher) Filter(op fsnotify.Op) {
-	c.OpMask &^= op
+func (fw *FileWatcher) Filter(op fsnotify.Op) {
+	fw.OpMask &^= op
 }
 
-func (c *FileWatcher) FilterByString(op string) {
+func (fw *FileWatcher) FilterByString(op string) {
 	switch op {
 	case "WRITE":
-		c.Filter(fsnotify.Write)
+		fw.Filter(fsnotify.Write)
 	case "REMOVE":
-		c.Filter(fsnotify.Remove)
+		fw.Filter(fsnotify.Remove)
 	case "RENAME":
-		c.Filter(fsnotify.Rename)
+		fw.Filter(fsnotify.Rename)
 	case "CREATE":
-		c.Filter(fsnotify.Create)
+		fw.Filter(fsnotify.Create)
 	default:
 		utils.ERROR("No operation named: ", op)
 	}
 }
 
 // Allow includes an operation into the mask
-func (c *FileWatcher) Allow(op fsnotify.Op) {
-	if !c.OpMask.Has(op) {
-		c.OpMask |= op
+func (fw *FileWatcher) Allow(op fsnotify.Op) {
+	if !fw.OpMask.Has(op) {
+		fw.OpMask |= op
 	}
 }
 
-func (c *FileWatcher) AllowByString(op string) {
+func (fw *FileWatcher) AllowByString(op string) {
 	switch op {
 	case "WRITE":
-		c.Allow(fsnotify.Write)
+		fw.Allow(fsnotify.Write)
 	case "REMOVE":
-		c.Allow(fsnotify.Remove)
+		fw.Allow(fsnotify.Remove)
 	case "RENAME":
-		c.Allow(fsnotify.Rename)
+		fw.Allow(fsnotify.Rename)
 	case "CREATE":
-		c.Allow(fsnotify.Create)
+		fw.Allow(fsnotify.Create)
 	default:
 		utils.ERROR("No operation named: ", op)
 	}
 }
 
 // AddPaths adds a number of paths to the current watchlist
-func (p *FileWatcher) AddPaths(paths ...string) {
+func (fw *FileWatcher) AddPaths(paths ...string) {
 	for _, path := range paths {
 		if subpaths := utils.WalkDir(path); subpaths != nil {
 			for _, subpath := range subpaths {
-				p.AddPath(subpath)
+				fw.AddPath(subpath)
 			}
 		}
 	}
 }
 
-func (p *FileWatcher) addToWatcher(path string) {
-	if !slices.Contains(p.Watcher.WatchList(), path) {
-		if err := p.Watcher.Add(path); err != nil {
+func (fw *FileWatcher) addToWatcher(path string) {
+	if !slices.Contains(fw.Watcher.WatchList(), path) {
+		if err := fw.Watcher.Add(path); err != nil {
 			utils.ERROR("Input path will be ignored as result of error: ", err)
 		} else {
 			utils.INFO("Path ", path, " added to the watchlist")
@@ -135,117 +188,149 @@ func (p *FileWatcher) addToWatcher(path string) {
 }
 
 // AddPath adds a single file or folder to the watchlist (non-recursively)
-func (p *FileWatcher) AddPath(path string) {
+func (fw *FileWatcher) AddPath(path string) {
 	path, _ = filepath.Abs(path)
-	info, _ := os.Stat(path) // Take the stat of the input path
+	info, err := os.Stat(path)
+	if err != nil {
+		utils.ERROR("Error AddPath: ", err)
+	}
 
 	// Append the file to the file list
-	p.FileList = append(p.FileList, path)
+	fw.FileList = append(fw.FileList, path)
 
 	if !info.IsDir() {
 		// If the input path is a file we need to take the parent folder
 		// as suggested in the fsnotify official documentation
 		parent_dir := filepath.Dir(path)
-		p.addToWatcher(parent_dir)
+		fw.addToWatcher(parent_dir)
 		return
 	}
 
-	p.addToWatcher(path)
+	fw.addToWatcher(path)
 }
 
-func (p *FileWatcher) loadCache() {
-	for _, file := range p.FileList {
-		if file == p.Config.Path {
+func (fw *FileWatcher) loadCache() {
+	for _, file := range fw.FileList {
+		if file == fw.Config.Path {
 			continue
 		}
 
 		if info, err := os.Stat(file); err == nil && !info.IsDir() {
-			base_ttl := time.Duration(p.Config.FS_Notification.BaseTTL) * time.Second
-			p.FileCache.Set(file, utils.ReadFileContent(file), base_ttl, true)
+			base_ttl := time.Duration(fw.Config.FS_Notification.BaseTTL) * time.Second
+			fw.FileCache.Set(file, utils.ReadFileContent(file), base_ttl, true)
 		}
 	}
 }
 
-// Attempt to close the watcher, otherwise log fatal the error
-func (p *FileWatcher) Close() {
-	if err := p.Watcher.Close(); err != nil {
-		utils.ERROR("Failed to close watcher: ", err)
-	}
-}
-
-func (p *FileWatcher) handleCreateEvent(event *NotificationEvent) {
+func (fw *FileWatcher) handleCreateEvent(event *NotificationEvent) {
 	// If no previous event has ever occurred then return
-	if p.Flag {
+	if fw.Flag {
 		// If the difference in time is grater then the threshold returns
-		diff := event.Timestamp.Sub(p.LastEvent.Timestamp)
-		if diff > THRESHOLD || !p.LastEvent.Op.Has(Remove|Rename) {
+		diff := event.Timestamp.Sub(fw.LastEvent.Timestamp)
+		if diff > THRESHOLD || !fw.LastEvent.Op.Has(Remove|Rename) {
 			return
 		}
 
 		// Set the correct type that is either move or rename
-		if p.LastEvent.Op.Has(Remove) {
+		if fw.LastEvent.Op.Has(Remove) {
 			event.Op = Move
 		} else {
 			event.Op = Rename
 		}
 
-		event.OldPath = p.LastEvent.Path
+		event.OldPath = fw.LastEvent.Path
 
-		// Handle simple create events
-		if event.Op == Create {
-			p.AddPath(event.Path)
-			return
-		}
-
-		// Now, if the type is either rename or remove than we need to
-		// check if its previous path was the configuration file, otherwise
-		// we can skip this event at all
-		if check := event.Op & (Move | Rename); check != 0 {
-			if event.OldPath == p.Config.Path {
-				utils.INFO("Reloading configuration file from new path ", event.Path)
-				p.Config.Path = event.Path
-				p.FileCache.Remove(p.Config.Path) // Removes the config previously added to the cache
-			}
-		}
+		// If the event is either remove or rename and the old path
+		// pointed by this event was the old conf file, then we need
+		// to set the Reload conf flag to true
+		check := event.Op & (Move | Rename)
+		event.ReloadConf = check != 0 && event.OldPath == fw.Config.Path
 	}
 }
 
-func (p *FileWatcher) produceEvent(event fsnotify.Event, prev, curr string, time time.Time) {
-	curr_event := NotificationEvent{
-		Path:      event.Name,
-		Op:        InternalType(event.Op),
-		Patches:   []diffmatchpatch.Patch{},
-		OldPath:   event.Name,
-		Timestamp: time,
+func (fw *FileWatcher) applyOperations(event *NotificationEvent) {
+
+	// If the current event cause the watcher to reload the conf
+	// we need to reset the watcher
+	if event.ReloadConf {
+		utils.WARN("Resetting the FileWatcher and reloading conf from ", event.Path)
+		fw.ResetWithConf(event.Path)
+		return
 	}
 
-	utils.INFO(curr_event)
+	// For move, remove and rename events we need to remove the old path
+	if event.Op.Has(Move | Remove | Rename) {
+		fw.RemovePath(event.OldPath)
+	}
+
+	// For move, rename and create we need to add the new path
+	if event.Op.Has(Create | Move | Rename) {
+		fw.RemovePath(event.Path)
+		fw.AddPath(event.Path)
+	}
+}
+
+func (fw *FileWatcher) produceEvent(event fsnotify.Event, prev, curr string, time time.Time) {
+
+	curr_event := NotificationEvent{
+		Path:       event.Name,
+		Op:         InternalType(event.Op),
+		Patches:    []diffmatchpatch.Patch{},
+		OldPath:    event.Name,
+		Timestamp:  time,
+		ReloadConf: false,
+	}
+
+	was_rename := false
+
+	// Create the diffmatchpath object
+	dm := diffmatchpatch.New()
 
 	// Check the type of the event and perform releated operations
 	switch event.Op {
 	case fsnotify.Write:
-		// Create the diffmatchpath object
-		dm := diffmatchpatch.New()
 		patches := dm.PatchMake(prev, curr)
 
-		if len(patches) > 0 {
-			fmt.Println(dm.PatchToText(patches))
-			curr_event.Patches = patches
+		if len(patches) == 0 {
+			break
+		}
+
+		// Otherwise compute the patches and check if the modified
+		// file is the configuration file
+		curr_event.Patches = patches
+
+		if event.Name == fw.Config.Path {
+			curr_event.ReloadConf = true
 		}
 
 	case fsnotify.Create:
 		// A new folder or file has been created
-		p.handleCreateEvent(&curr_event)
+		fw.handleCreateEvent(&curr_event)
+
+	case fsnotify.Rename:
+		// Renames are handled as a combination of rename|remove and
+		// immediately successfully create events.
+		curr_event.Op = Remove
+		was_rename = true
 	}
 
-	p.LastEvent = curr_event
-	p.Flag = true
+	utils.INFO(curr_event)
+	fw.applyOperations(&curr_event) // Apply the operations of the event
+
+	// Reset the rename operation if necessary
+	if was_rename {
+		curr_event.Op = Rename
+	}
+
+	fw.Channel.EventCh <- curr_event
+	fw.LastEvent = curr_event
+	fw.Flag = true
 }
 
 // handleFsEvent puts the received event into the channel
-func (p *FileWatcher) handleFsEvent(event fsnotify.Event) {
+func (fw *FileWatcher) handleFsEvent(event fsnotify.Event) {
 	// Ignore the event if it filtered by the configuration filters
-	if p.OpMask.Has(event.Op) {
+	if fw.OpMask.Has(event.Op) {
 		return
 	}
 
@@ -254,13 +339,13 @@ func (p *FileWatcher) handleFsEvent(event fsnotify.Event) {
 	// Before producing events we need to check if the current event
 	// is the same as previous. In that case, there must be a
 	// threshold to validate that the new event should be produced or not
-	if p.Flag {
-		prev_name := p.LastEvent.Path
-		prev_op := p.LastEvent.Op
+	if fw.Flag {
+		prev_name := fw.LastEvent.Path
+		prev_op := fw.LastEvent.Op
 
 		if prev_name == event.Name && prev_op == InternalType(event.Op) {
-			prev_timestamp := p.LastEvent.Timestamp
-			threshold := p.Config.FS_Notification.SynchInterval * float64(time.Second)
+			prev_timestamp := fw.LastEvent.Timestamp
+			threshold := fw.Config.FS_Notification.SynchInterval * float64(time.Second)
 			if diff := curr_time.Sub(prev_timestamp); diff < time.Duration(threshold) {
 				return
 			}
@@ -271,77 +356,77 @@ func (p *FileWatcher) handleFsEvent(event fsnotify.Event) {
 	// folders also provides CREATE event handling of new children
 	parentPath := filepath.Dir(event.Name)
 
-	if slices.Contains(p.FileList, event.Name) || slices.Contains(p.FileList, parentPath) {
+	if slices.Contains(fw.FileList, event.Name) || slices.Contains(fw.FileList, parentPath) {
 
 		// If it is a remove or a rename operation than we shall not try to
 		// retrieve information about that file, since it now does not exists anymore.
 		if event.Has(fsnotify.Remove | fsnotify.Rename) {
 			// The configuration file does not exists in the cache
-			if event.Name != p.Config.Path {
-				p.FileCache.Remove(event.Name) // Remove the entry from the cache
+			if event.Name != fw.Config.Path {
+				fw.FileCache.Remove(event.Name) // Remove the entry from the cache
 			}
 
-			p.produceEvent(event, "", "", curr_time)
+			fw.produceEvent(event, "", "", curr_time)
 			return
 		}
+
+		info, _ := os.Stat(event.Name)
 
 		var prev_content string
 		var curr_content string
 
-		info, _ := os.Stat(event.Name)
-
-		if !info.IsDir() && event.Name != p.Config.Path {
+		if !info.IsDir() && event.Name != fw.Config.Path {
 			// Check if the current file is a key in the map. If it is not
 			// contained then, a new file or folder has been created,
 			// and we must insert into the map
 			var ok bool
-			cache_content, ok := p.FileCache.GetWithDefault(event.Name, "")
+			cache_content, ok := fw.FileCache.GetWithDefault(event.Name, "")
 
 			if !ok {
-				base_ttl := time.Duration(p.Config.FS_Notification.BaseTTL) * time.Second
-				p.FileCache.Set(event.Name, cache_content, base_ttl, true)
+				base_ttl := time.Duration(fw.Config.FS_Notification.BaseTTL) * time.Second
+				fw.FileCache.Set(event.Name, cache_content, base_ttl, true)
 			}
 
 			prev_content = cache_content.(string)
 
 			// Set the new content into the map
 			curr_content = utils.ReadFileContent(event.Name)
-			p.FileCache.Modify(event.Name, curr_content)
+			fw.FileCache.Modify(event.Name, curr_content)
 		}
 
-		p.produceEvent(event, prev_content, curr_content, curr_time)
+		fw.produceEvent(event, prev_content, curr_content, curr_time)
 	}
 }
 
-func (p *FileWatcher) catchEvents() {
-	for event := range p.InternalCh {
-		p.handleFsEvent(event)
+func (fw *FileWatcher) catchEvents() {
+	for event := range fw.InternalCh {
+		fw.handleFsEvent(event)
 	}
 }
 
 // The Producer loop which produces the events
-func (p *FileWatcher) Run(ctx context.Context) {
+func (fw *FileWatcher) Run(ctx context.Context) {
 	// Starts the cache
-	exp_interval := p.Config.FS_Notification.ExpirationInt
-	p.FileCache.Run(ctx, time.Duration(exp_interval)*time.Second)
+	exp_interval := fw.Config.FS_Notification.ExpirationInt
+	fw.FileCache.Run(ctx, time.Duration(exp_interval)*time.Second)
 
 	// Start the go routine for catching events
-	go p.catchEvents()
+	go fw.catchEvents()
 
 	for {
 		select {
-		case event, ok := <-p.Watcher.Events:
+		case event, ok := <-fw.Watcher.Events:
 			// Watch for file system events
 			if !ok {
 				return
 			}
-			p.InternalCh <- event
-		case err, ok := <-p.Watcher.Errors:
+			fw.InternalCh <- event
+		case err, ok := <-fw.Watcher.Errors:
 			// Watch for possible errors while catching events
 			if !ok {
 				return
 			}
-			utils.ERROR("Error: ", err)
+			utils.ERROR("Error 1: ", err)
 		case <-ctx.Done():
 			// When the context is closed then exit
 			utils.INFO("EventProducer canceled: ", ctx.Err())

@@ -171,7 +171,7 @@ func (c *Cache) Remove(key string) {
 	delete(c.items, key)
 }
 
-func (c *Cache) eraseCache() {
+func (c *Cache) EraseCache() {
 	for key := range c.items {
 		delete(c.items, key)
 	}
@@ -202,7 +202,7 @@ func (c *Cache) Run(ctx context.Context, interval time.Duration) {
 			case <-ctx.Done():
 				// When the context is closed then exit
 				INFO("Cache routine canceled: ", ctx.Err())
-				c.eraseCache()
+				c.EraseCache()
 				return
 			}
 		}
