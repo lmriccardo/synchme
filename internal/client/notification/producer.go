@@ -1,4 +1,4 @@
-package client
+package notification
 
 import (
 	"context"
@@ -9,29 +9,33 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
+	"github.com/lmriccardo/synchme/internal/client/communication"
+	"github.com/lmriccardo/synchme/internal/client/config"
+	"github.com/lmriccardo/synchme/internal/client/utils"
 )
 
 type FileWatcherProducer struct {
-	Channel   *PC_Channel       // Write-only channel for fs events
-	Watcher   *fsnotify.Watcher // The watcher for notifications on events
-	FileList  [](string)        // List of files watched by the Watcher
-	FileCache *Cache            // Maps the file with its content
-	Config    *ClientConf       // Client configuration structure
-	LastEvent NotificationEvent // Last produced event
-	Flag      bool              // True if has produced, False otherwise
+	Channel   *communication.PC_Channel       // Write-only channel for fs events
+	Watcher   *fsnotify.Watcher               // The watcher for notifications on events
+	FileList  [](string)                      // List of files watched by the Watcher
+	FileCache *utils.Cache                    // Maps the file with its content
+	Config    *config.ClientConf              // Client configuration structure
+	LastEvent communication.NotificationEvent // Last produced event
+	Flag      bool                            // True if has produced, False otherwise
 }
 
 // CreateProducer creates a new EventProducer and returns the producer and its event channel.
 // bufferSize specifies the channel buffer size; if <= 0, a default of 100 is used.
-func NewProducer(pc_ch *PC_Channel, conf *ClientConf) (*FileWatcherProducer, error) {
+func NewProducer(pc_ch *communication.PC_Channel, conf *config.ClientConf) (*FileWatcherProducer, error) {
 	watcher, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err
 	}
 
-	cache := NewCache(time.Duration(conf.FS_Notification.MaxTTL) * time.Second)
+	cache := utils.NewCache(time.Duration(conf.FS_Notification.MaxTTL) * time.Second)
 	producer := &FileWatcherProducer{
-		pc_ch, watcher, []string{}, cache, conf, NotificationEvent{}, false}
+		pc_ch, watcher, []string{}, cache, conf,
+		communication.NotificationEvent{}, false}
 
 	// Read the watchlist from the configuration
 	watchlist := conf.FS_Notification.Paths
@@ -50,7 +54,7 @@ func NewProducer(pc_ch *PC_Channel, conf *ClientConf) (*FileWatcherProducer, err
 func ReadFileContent(path string) string {
 	content, err := os.ReadFile(path)
 	if err != nil {
-		WARN("Impossible reading ", path)
+		utils.WARN("Impossible reading ", path)
 		return ""
 	}
 
@@ -87,7 +91,7 @@ func (p *FileWatcherProducer) WalkDir(path string) fs.WalkDirFunc {
 			p.AddPathWithRecurse(subPath, false)
 		} else {
 			p.FileList = append(p.FileList, subPath)
-			INFO("Path ", subPath, " added to the watchlist")
+			utils.INFO("Path ", subPath, " added to the watchlist")
 		}
 
 		return nil
@@ -98,14 +102,14 @@ func (p *FileWatcherProducer) AddPathWithRecurse(path string, recursive bool) {
 	// Check if the input path is absolute or not
 	abs_path, err := filepath.Abs(path)
 	if err != nil {
-		ERROR("Input path will be ignored as result of error: ", err)
+		utils.ERROR("Input path will be ignored as result of error: ", err)
 		return
 	}
 
 	path = abs_path
 	info, err := os.Stat(path) // Take the stat of the input path
 	if err != nil {
-		ERROR("Input path will be ignored as result of error: ", err)
+		utils.ERROR("Input path will be ignored as result of error: ", err)
 		return
 	}
 
@@ -118,17 +122,17 @@ func (p *FileWatcherProducer) AddPathWithRecurse(path string, recursive bool) {
 		parent_dir := filepath.Dir(path)
 
 		if err := p.Watcher.Add(parent_dir); err != nil {
-			ERROR("Input path will be ignored as result of error: ", err)
+			utils.ERROR("Input path will be ignored as result of error: ", err)
 		}
-		INFO("Path ", path, " added to the watchlist")
+		utils.INFO("Path ", path, " added to the watchlist")
 		return
 	}
 
 	if err := p.Watcher.Add(path); err != nil {
-		ERROR("Input path will be ignored as result of error: ", err)
+		utils.ERROR("Input path will be ignored as result of error: ", err)
 	}
 
-	INFO("Path ", path, " added to the watchlist")
+	utils.INFO("Path ", path, " added to the watchlist")
 
 	// If recursive is on, then we need also to add all the subfolder
 	if recursive {
@@ -139,12 +143,17 @@ func (p *FileWatcherProducer) AddPathWithRecurse(path string, recursive bool) {
 // Attempt to close the watcher, otherwise log fatal the error
 func (p *FileWatcherProducer) Close() {
 	if err := p.Watcher.Close(); err != nil {
-		ERROR("Failed to close watcher: ", err)
+		utils.ERROR("Failed to close watcher: ", err)
 	}
 }
 
 func (p *FileWatcherProducer) ProduceEvent(event fsnotify.Event, prev, curr string, time time.Time) {
-	curr_event := NotificationEvent{event, prev, curr, time}
+	curr_event := communication.NotificationEvent{
+		EventObj:    event,
+		PrevContent: prev,
+		CurrContent: curr,
+		Timestamp:   time}
+
 	p.Channel.EventCh <- curr_event
 	p.LastEvent = curr_event
 	p.Flag = true
@@ -179,14 +188,13 @@ func (p *FileWatcherProducer) Produce(event fsnotify.Event) {
 		// If the current event is releated to the configuration file, then it
 		// automatically filters out the remove event
 		if event.Name == p.Config.Path && event.Has(fsnotify.Remove) {
-			WARN("Configuration file has been deleted, continuing with loaded values!!")
+			utils.WARN("Configuration file has been deleted, continuing with loaded values!!")
 			return
 		}
 
-		// If it is a remove operation than we shall not try to
-		// retrieve information about that file, since it now
-		// does not exists anymore.
-		if event.Has(fsnotify.Remove) {
+		// If it is a remove or a rename operation than we shall not try to
+		// retrieve information about that file, since it now does not exists anymore.
+		if event.Has(fsnotify.Remove | fsnotify.Rename) {
 			p.FileCache.Remove(event.Name) // Remove the entry from the cache
 			p.ProduceEvent(event, "", "", curr_time)
 			return
@@ -239,7 +247,7 @@ func (p *FileWatcherProducer) Run(ctx context.Context) {
 			if !ok {
 				return
 			}
-			ERROR("Error: ", err)
+			utils.ERROR("Error: ", err)
 		case content, ok := <-p.Channel.ConsumerCh:
 			if !ok {
 				return
@@ -249,7 +257,7 @@ func (p *FileWatcherProducer) Run(ctx context.Context) {
 			p.AddPath(content)
 		case <-ctx.Done():
 			// When the context is closed then exit
-			INFO("EventProducer canceled: ", ctx.Err())
+			utils.INFO("EventProducer canceled: ", ctx.Err())
 			return
 		}
 	}

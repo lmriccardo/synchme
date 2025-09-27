@@ -1,4 +1,4 @@
-package client
+package config
 
 import (
 	"net"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/go-playground/validator/v10"
+	"github.com/lmriccardo/synchme/internal/client/utils"
 )
 
 // Configuration-releated settings
@@ -116,14 +117,14 @@ type VCallback func(v *validator.Validate) func(fl validator.FieldLevel) bool
 
 func RegisterValidator(v *validator.Validate, name string, callback VCallback) {
 	if err := v.RegisterValidation(name, callback(v)); err != nil {
-		FATAL("Failed to register validator: ", err)
+		utils.FATAL("Failed to register validator: ", err)
 	}
 }
 
 func ReadConf(path string) *ClientConf {
 	var synchme_client_conf ClientConf
 	if _, err := toml.DecodeFile(path, &synchme_client_conf); err != nil {
-		FATAL("Fatal Error: Configuration Error ", err)
+		utils.FATAL("Fatal Error: Configuration Error ", err)
 	}
 
 	validate := validator.New(validator.WithRequiredStructEnabled())
@@ -136,11 +137,11 @@ func ReadConf(path string) *ClientConf {
 	if err := validate.Struct(synchme_client_conf); err != nil {
 		if errs, ok := err.(validator.ValidationErrors); ok {
 			for _, e := range errs {
-				WARN("[Conf Field: ", e.Field(), "] Invalid for tag=",
+				utils.WARN("[Conf Field: ", e.Field(), "] Invalid for tag=",
 					e.Tag(), " with value=", e.Value())
 			}
 		}
-		ERROR("invalid config")
+		utils.ERROR("invalid config")
 		return nil
 	}
 

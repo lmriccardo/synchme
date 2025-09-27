@@ -6,6 +6,7 @@ require (
 	github.com/BurntSushi/toml v1.5.0
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/go-playground/validator/v10 v10.27.0
+	github.com/radovskyb/watcher v1.0.7
 	github.com/sergi/go-diff v1.4.0
 )
 

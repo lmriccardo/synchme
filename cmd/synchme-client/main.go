@@ -4,10 +4,11 @@ import (
 	"flag"
 
 	"github.com/lmriccardo/synchme/internal/client"
+	"github.com/lmriccardo/synchme/internal/client/utils"
 )
 
 func main() {
-	client.INFO("Starting SynchMe Client ...")
+	utils.INFO("Starting SynchMe Client ...")
 
 	default_file := "./config/client_config.toml"
 	conf_file_path := flag.String("conf", default_file, "Client configuration file")
