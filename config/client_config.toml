@@ -8,7 +8,6 @@ paths = [
     "/workspaces/synchme/example"
 ]
 
-folder_recursive    = true  # Perform recursive search on added folders
 caching_base_ttl    = 900   # [seconds] Time To Live of content in the cache
 caching_max_ttl     = 10800 # [seconds] Maximum Time To Live of the content in the cache
 expiration_interval = 1     # [seconds] Interval of time between two expiration checks

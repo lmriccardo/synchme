@@ -28,7 +28,6 @@ type Config struct {
 // ExpirationInt: [seconds] Interval of time between two expiration checks
 type FS_Notification struct {
 	Paths         []string `toml:"paths"`
-	Recursive     *bool    `toml:"folder_recursive" validate:"required,boolean"`
 	BaseTTL       int64    `toml:"caching_base_ttl" validate:"required,numeric,min=1"`
 	MaxTTL        int64    `toml:"caching_max_ttl" validate:"required,numeric,gtefield=BaseTTL"`
 	ExpirationInt int64    `toml:"expiration_interval" validate:"required,numeric,min=1"`

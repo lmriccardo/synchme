@@ -7,7 +7,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/lmriccardo/synchme/internal/client/communication"
 	"github.com/lmriccardo/synchme/internal/client/config"
 	"github.com/lmriccardo/synchme/internal/client/notification"
 	"github.com/lmriccardo/synchme/internal/client/utils"
@@ -18,7 +17,7 @@ func Run(conf_file_path string) {
 	defer cancel()
 
 	// Creates the producer consumer communication channel
-	ch := communication.NewChannel(100)
+	ch := notification.NewChannel(100)
 	defer ch.Close()
 
 	// Load the configuration
@@ -30,18 +29,13 @@ func Run(conf_file_path string) {
 	utils.INFO("Read configuration ", conf_file_path)
 
 	// Creates a new producer with 0 chan buffer size
-	producer, err := notification.NewProducer(ch, client_conf)
+	producer, err := notification.NewFileWatcher(ch, client_conf)
 	if err != nil {
 		utils.FATAL("Fatal Error: ", err)
 	}
 
 	defer producer.Close()
-
-	// Create the consumer with the Producer Channel
-	consumer := notification.NewConsumer(ch, client_conf)
-
 	go producer.Run(ctx)
-	go consumer.Run(ctx)
 
 	// Create a channel to catch OS signals (CTRL+C)
 	sigs := make(chan os.Signal, 1)
