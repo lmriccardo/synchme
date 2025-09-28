@@ -16,6 +16,4 @@ filters             = []    # FS Operations to be filtered (WRITE, CREATE, REMOV
 
 [Network]
 relay_host = "127.0.0.1" # The IP address or the hostname of the relay server
-relay_port = 1234        # The IP port of the relay server
-network_interface = "lo" # Sender network interface
-source_port = 1234       # Client source port
+relay_port = 50051       # The IP port of the relay server

@@ -41,10 +41,8 @@ type FS_Notification struct {
 // NetworkInterface: Sender network interface
 // SourcePort      : Client source port
 type Network struct {
-	RelayHost        string `toml:"relay_host" validate:"required,ip_or_hostname"`
-	RelayPort        int    `toml:"relay_port" validate:"required,min=1,max=65535"`
-	NetworkInterface string `toml:"network_interface" validate:"required,ip_or_iface"`
-	SourcePort       int    `toml:"source_port" validate:"required,min=1,max=65535"`
+	ServerHost string `toml:"relay_host" validate:"required,ip_or_hostname"`
+	ServerPort int    `toml:"relay_port" validate:"required,min=1,max=65535"`
 }
 
 // Root struct representing the whole TOML

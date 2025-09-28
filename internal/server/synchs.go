@@ -42,7 +42,7 @@ func Run() {
 
 	lis, err := net.ListenTCP("tcp", &net.TCPAddr{
 		IP:   net.ParseIP("127.0.0.1"),
-		Port: 50001,
+		Port: 50051,
 	})
 
 	if err != nil {

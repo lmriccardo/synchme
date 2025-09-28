@@ -30,6 +30,7 @@ type SyncMessage struct {
 	//	*SyncMessage_Update
 	//	*SyncMessage_Rename
 	//	*SyncMessage_Remove
+	//	*SyncMessage_Ack
 	Msg           isSyncMessage_Msg `protobuf_oneof:"msg"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -108,6 +109,15 @@ func (x *SyncMessage) GetRemove() *FileRemove {
 	return nil
 }
 
+func (x *SyncMessage) GetAck() *SyncAck {
+	if x != nil {
+		if x, ok := x.Msg.(*SyncMessage_Ack); ok {
+			return x.Ack
+		}
+	}
+	return nil
+}
+
 type isSyncMessage_Msg interface {
 	isSyncMessage_Msg()
 }
@@ -128,6 +138,10 @@ type SyncMessage_Remove struct {
 	Remove *FileRemove `protobuf:"bytes,4,opt,name=remove,proto3,oneof"`
 }
 
+type SyncMessage_Ack struct {
+	Ack *SyncAck `protobuf:"bytes,5,opt,name=ack,proto3,oneof"`
+}
+
 func (*SyncMessage_Hello) isSyncMessage_Msg() {}
 
 func (*SyncMessage_Update) isSyncMessage_Msg() {}
@@ -135,6 +149,8 @@ func (*SyncMessage_Update) isSyncMessage_Msg() {}
 func (*SyncMessage_Rename) isSyncMessage_Msg() {}
 
 func (*SyncMessage_Remove) isSyncMessage_Msg() {}
+
+func (*SyncMessage_Ack) isSyncMessage_Msg() {}
 
 // Sent by the client when it connects after authentication
 type ClientHello struct {
@@ -538,12 +554,13 @@ var File_filesync_proto protoreflect.FileDescriptor
 
 const file_filesync_proto_rawDesc = "" +
 	"\n" +
-	"\x0efilesync.proto\x12\bfilesync\"\xd3\x01\n" +
+	"\x0efilesync.proto\x12\bfilesync\"\xfa\x01\n" +
 	"\vSyncMessage\x12-\n" +
 	"\x05hello\x18\x01 \x01(\v2\x15.filesync.ClientHelloH\x00R\x05hello\x12.\n" +
 	"\x06update\x18\x02 \x01(\v2\x14.filesync.FileUpdateH\x00R\x06update\x12.\n" +
 	"\x06rename\x18\x03 \x01(\v2\x14.filesync.FileRenameH\x00R\x06rename\x12.\n" +
-	"\x06remove\x18\x04 \x01(\v2\x14.filesync.FileRemoveH\x00R\x06removeB\x05\n" +
+	"\x06remove\x18\x04 \x01(\v2\x14.filesync.FileRemoveH\x00R\x06remove\x12%\n" +
+	"\x03ack\x18\x05 \x01(\v2\x11.filesync.SyncAckH\x00R\x03ackB\x05\n" +
 	"\x03msg\"U\n" +
 	"\vClientHello\x12\x1b\n" +
 	"\tclient_id\x18\x01 \x01(\tR\bclientId\x12)\n" +
@@ -608,16 +625,17 @@ var file_filesync_proto_depIdxs = []int32{
 	3, // 1: filesync.SyncMessage.update:type_name -> filesync.FileUpdate
 	4, // 2: filesync.SyncMessage.rename:type_name -> filesync.FileRename
 	5, // 3: filesync.SyncMessage.remove:type_name -> filesync.FileRemove
-	2, // 4: filesync.FileUpdate.meta:type_name -> filesync.MessageMeta
-	2, // 5: filesync.FileRename.meta:type_name -> filesync.MessageMeta
-	2, // 6: filesync.FileRemove.meta:type_name -> filesync.MessageMeta
-	0, // 7: filesync.FileSynchService.Sync:input_type -> filesync.SyncMessage
-	0, // 8: filesync.FileSynchService.Sync:output_type -> filesync.SyncMessage
-	8, // [8:9] is the sub-list for method output_type
-	7, // [7:8] is the sub-list for method input_type
-	7, // [7:7] is the sub-list for extension type_name
-	7, // [7:7] is the sub-list for extension extendee
-	0, // [0:7] is the sub-list for field type_name
+	6, // 4: filesync.SyncMessage.ack:type_name -> filesync.SyncAck
+	2, // 5: filesync.FileUpdate.meta:type_name -> filesync.MessageMeta
+	2, // 6: filesync.FileRename.meta:type_name -> filesync.MessageMeta
+	2, // 7: filesync.FileRemove.meta:type_name -> filesync.MessageMeta
+	0, // 8: filesync.FileSynchService.Sync:input_type -> filesync.SyncMessage
+	0, // 9: filesync.FileSynchService.Sync:output_type -> filesync.SyncMessage
+	9, // [9:10] is the sub-list for method output_type
+	8, // [8:9] is the sub-list for method input_type
+	8, // [8:8] is the sub-list for extension type_name
+	8, // [8:8] is the sub-list for extension extendee
+	0, // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_filesync_proto_init() }
@@ -630,6 +648,7 @@ func file_filesync_proto_init() {
 		(*SyncMessage_Update)(nil),
 		(*SyncMessage_Rename)(nil),
 		(*SyncMessage_Remove)(nil),
+		(*SyncMessage_Ack)(nil),
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{

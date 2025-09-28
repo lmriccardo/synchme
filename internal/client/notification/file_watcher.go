@@ -54,7 +54,7 @@ func NewFileWatcher(ch *WatcherChannel, conf *config.ClientConf) (*FileWatcher, 
 // Attempt to close the watcher, otherwise log fatal the error
 func (fw *FileWatcher) Close() {
 	if err := fw.Watcher.Close(); err != nil {
-		utils.ERROR("Failed to close watcher: ", err)
+		utils.ERROR("[FileWatcher] Failed to close watcher: ", err)
 	}
 }
 
@@ -84,12 +84,12 @@ func (fw *FileWatcher) RemovePath(path string) {
 	if slices.Contains(fw.Watcher.WatchList(), path) {
 		if _, err := os.Stat(path); err == nil {
 			if err := fw.Watcher.Remove(path); err != nil {
-				utils.ERROR("Error RemovePath: ", err)
+				utils.ERROR("[FileWatcher] Error RemovePath: ", err)
 			}
 		} else if os.IsNotExist(err) {
-			utils.INFO("Path already deleted, cleaning from watch list: ", path)
+			utils.INFO("[FileWatcher] Path already deleted, cleaning from watch list: ", path)
 		} else {
-			utils.ERROR("Stat error: ", err)
+			utils.ERROR("[FileWatcher] Stat error: ", err)
 		}
 	}
 
@@ -120,7 +120,7 @@ func (fw *FileWatcher) loadConf() {
 	// Filters also all the operations in the configuration
 	for _, operation := range fw.Config.FS_Notification.Filters {
 		fw.FilterByString(operation)
-		utils.INFO("Applied Filter: ", operation)
+		utils.INFO("[FileWatcher] Applied Filter: ", operation)
 	}
 }
 
@@ -180,9 +180,9 @@ func (fw *FileWatcher) AddPaths(paths ...string) {
 func (fw *FileWatcher) addToWatcher(path string) {
 	if !slices.Contains(fw.Watcher.WatchList(), path) {
 		if err := fw.Watcher.Add(path); err != nil {
-			utils.ERROR("Input path will be ignored as result of error: ", err)
+			utils.ERROR("[FileWatcher] Input path will be ignored as result of error: ", err)
 		} else {
-			utils.INFO("Path ", path, " added to the watchlist")
+			utils.INFO("[FileWatcher] Path ", path, " added to the watchlist")
 		}
 	}
 }
@@ -192,7 +192,7 @@ func (fw *FileWatcher) AddPath(path string) {
 	path, _ = filepath.Abs(path)
 	info, err := os.Stat(path)
 	if err != nil {
-		utils.ERROR("Error AddPath: ", err)
+		utils.ERROR("[FileWatcher] Error AddPath: ", err)
 	}
 
 	// Append the file to the file list
@@ -253,7 +253,7 @@ func (fw *FileWatcher) applyOperations(event *NotificationEvent) {
 	// If the current event cause the watcher to reload the conf
 	// we need to reset the watcher
 	if event.ReloadConf {
-		utils.WARN("Resetting the FileWatcher and reloading conf from ", event.Path)
+		utils.WARN("[FileWatcher] Resetting the FileWatcher and reloading conf from ", event.Path)
 		fw.ResetWithConf(event.Path)
 		return
 	}
@@ -426,10 +426,10 @@ func (fw *FileWatcher) Run(ctx context.Context) {
 			if !ok {
 				return
 			}
-			utils.ERROR("Error 1: ", err)
+			utils.ERROR("[FileWatcher] Error 1: ", err)
 		case <-ctx.Done():
 			// When the context is closed then exit
-			utils.INFO("EventProducer canceled: ", ctx.Err())
+			utils.INFO("[FileWatcher] EventProducer canceled: ", ctx.Err())
 			return
 		}
 	}

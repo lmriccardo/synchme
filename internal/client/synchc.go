@@ -37,6 +37,15 @@ func Run(conf_file_path string) {
 	defer producer.Close()
 	go producer.Run(ctx)
 
+	// Creates the gRPC client for communicating with the server
+	client, err := notification.NewClient(client_conf, ch)
+	if err != nil {
+		utils.FATAL("Fatal Error: ", err)
+	}
+
+	defer client.Close()
+	go client.Run(ctx)
+
 	// Create a channel to catch OS signals (CTRL+C)
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM)
