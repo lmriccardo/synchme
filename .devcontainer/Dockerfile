@@ -50,3 +50,13 @@ RUN go mod download github.com/sergi/go-diff@v1.4.0
 RUN go mod download github.com/BurntSushi/toml@v1.5.0
 RUN go mod download github.com/go-playground/validator/v10@v10.27.0
 RUN go mod download github.com/radovskyb/watcher@v1.0.7
+
+# Install the protocol buffer Go plugin
+RUN go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
+RUN go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
+
+# Install the protocol buffer compiler
+RUN PB_REL="https://github.com/protocolbuffers/protobuf/releases" \
+    && curl -L -o /tmp/protoc.zip $PB_REL/download/v30.2/protoc-30.2-linux-x86_64.zip \
+    && unzip /tmp/protoc.zip -d $HOME/.local \
+    && rm /tmp/protoc.zip

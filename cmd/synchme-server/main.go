@@ -1,12 +1,12 @@
 package main
 
 import (
-	"fmt"
+	"log"
 
 	"github.com/lmriccardo/synchme/internal/server"
 )
 
 func main() {
-	fmt.Println("Starting app ...")
+	log.Println("Starting SynchMe Server ...")
 	server.Run()
 }

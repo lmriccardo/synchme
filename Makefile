@@ -16,17 +16,37 @@ else
     EXE=
 endif
 
-.PHONY: all build client server run-client run-server demo test lint clean help
+PROTO_DIR = ./api
+GEN_DIR   = internal/proto
+PROTOC	  = protoc
+
+PROTOS := $(shell find $(PROTO_DIR) -name '*.proto')
+
+.PHONY: all proto build client server run-client run-server demo test lint clean help
 
 all: build
 
+proto: $(PROTOS:$(PROTO_DIR)/%.proto=$(GEN_DIR)/%.pb.go)
+
+# Rule for compiling a single proto file
+$(GEN_DIR)/%.pb.go: $(PROTO_DIR)/%.proto
+	@PROTO_BASENAME=$(basename $(notdir $<)) ; \
+	OUT_DIR=$(dir $@)$$PROTO_BASENAME ; \
+	echo "Compiling $< ..." ; \
+	mkdir -p $$OUT_DIR ; \
+	$(PROTOC) --proto_path=$(PROTO_DIR) \
+		--go_out=$$OUT_DIR \
+		--go_opt=paths=source_relative \
+		--go-grpc_opt=paths=source_relative \
+		--go-grpc_out=$$OUT_DIR $<
+
 build: client server
 
-client:
+client: proto
 	@echo "Building client for $(GOOS)/$(GOARCH)..."
 	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -o $(BINDIR)/$(CLIENT_NAME)$(EXE) $(CLIENT_CMD)
 
-server:
+server: proto
 	@echo "Building server for $(GOOS)/$(GOARCH)..."
 	GOOS=$(GOOS) GOARCH=$(GOARCH) go build -o $(BINDIR)/$(SERVER_NAME)$(EXE) $(SERVER_CMD)
 
