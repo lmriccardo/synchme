@@ -168,6 +168,11 @@ func (c *Cache) Modify(key string, value any) bool {
 func (c *Cache) Remove(key string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.UnsafeRemove(key)
+}
+
+// Remove removes an item from the cache if it exists
+func (c *Cache) UnsafeRemove(key string) {
 	delete(c.items, key)
 }
 
@@ -179,6 +184,9 @@ func (c *Cache) EraseCache() {
 
 // ExpirationRoutine checks when cache entry has expired and removes it.
 func (c *Cache) ExpirationRoutine() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	for key := range c.items {
 		if result, _ := c.UnsafeHasExpired(key); result {
 			INFO("Item ", key, " has expired")

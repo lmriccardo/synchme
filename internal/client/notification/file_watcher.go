@@ -193,6 +193,7 @@ func (fw *FileWatcher) AddPath(path string) {
 	info, err := os.Stat(path)
 	if err != nil {
 		utils.ERROR("[FileWatcher] Error AddPath: ", err)
+		return
 	}
 
 	// Append the file to the file list
