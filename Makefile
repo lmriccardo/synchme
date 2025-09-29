@@ -83,6 +83,7 @@ clean:
 help:
 	@echo "Available targets:"
 	@echo "  build       - Build both client and server"
+	@echo "  proto 		 - Build protobuffer files into Go Code"
 	@echo "  client      - Build client only"
 	@echo "  server      - Build server only"
 	@echo "  run-client  - Build and run client"

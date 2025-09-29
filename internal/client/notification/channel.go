@@ -52,6 +52,7 @@ type NotificationEvent struct {
 	OldPath    string                 // Optional string representing the file old path
 	Timestamp  time.Time              // The timestamp of the event
 	ReloadConf bool                   // True to reload the conf, false otherwise
+	Sent       bool                   // If the notification has been sent to the sender
 }
 
 func (ev NotificationEvent) String() string {

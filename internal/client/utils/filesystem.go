@@ -22,7 +22,12 @@ func WalkDir(path string) []string {
 	result := []string{path} // Initialize the return list
 
 	// If the input path is just a file, returns only the file
-	info, _ := os.Stat(path)
+	info, err := os.Stat(path)
+	if err != nil {
+		ERROR("Error: ", err)
+		return nil
+	}
+
 	if !info.IsDir() {
 		return []string{path}
 	}
@@ -40,4 +45,56 @@ func WalkDir(path string) []string {
 	}
 
 	return result
+}
+
+// MkdirAll creates all the folders (including the non-existing parent
+// and calls a callback on each created folder)
+func MkdirAll(path string, mode os.FileMode, callback func(string) error) error {
+	paths := []string{}
+	curr_path := path
+
+	// First collects all the paths up to the first existing one
+	for {
+		_, err := os.Stat(curr_path)
+
+		// If the current folder does not exists
+		if os.IsNotExist(err) {
+			paths = append(paths, curr_path)
+			curr_path = filepath.Dir(curr_path)
+			continue
+		}
+
+		break
+	}
+
+	// Create the folder and all subfolders
+	if err := os.MkdirAll(path, mode); err != nil {
+		return err
+	}
+
+	for idx := len(paths) - 1; idx > -1; idx-- {
+		if err := callback(paths[idx]); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// RemoveAll removes all the sub folders and files contained in the input path
+// and calls a callback for each removed element
+func RemoveAll(path string, callback func(string) error) error {
+	subpaths := WalkDir(path)
+
+	for idx := len(subpaths) - 1; idx > -1; idx-- {
+		if err := os.Remove(subpaths[idx]); err != nil {
+			return err
+		}
+
+		if err := callback(subpaths[idx]); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

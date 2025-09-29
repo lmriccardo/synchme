@@ -1,0 +1,17 @@
+[Config]
+watch_conf = false  # The current file is automatically watched
+synch_conf = false # If the conf change, remote synch is provided
+
+[FileSystemNotification]
+# The absolute paths of file/folder to watch
+paths = ["/home/vscode/test1"]
+
+caching_base_ttl    = 900   # [seconds] Time To Live of content in the cache
+caching_max_ttl     = 10800 # [seconds] Maximum Time To Live of the content in the cache
+expiration_interval = 1     # [seconds] Interval of time between two expiration checks
+synch_interval      = 0.01  # [seconds] The minimum interval between two equal events to synchronize
+filters             = []    # FS Operations to be filtered (WRITE, CREATE, REMOVE, RENAME)
+
+[Network]
+relay_host = "127.0.0.1" # The IP address or the hostname of the relay server
+relay_port = 50051       # The IP port of the relay server
