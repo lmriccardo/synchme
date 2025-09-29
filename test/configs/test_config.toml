@@ -4,9 +4,7 @@ synch_conf = false # If the conf change, remote synch is provided
 
 [FileSystemNotification]
 # The absolute paths of file/folder to watch
-paths = [
-    "/home/vscode/test"
-]
+paths = ["/home/vscode/test1"]
 
 caching_base_ttl    = 900   # [seconds] Time To Live of content in the cache
 caching_max_ttl     = 10800 # [seconds] Maximum Time To Live of the content in the cache

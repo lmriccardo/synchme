@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -24,7 +26,8 @@ type FileWatcher struct {
 	Config     *config.ClientConf  // Client configuration structure
 	LastEvent  NotificationEvent   // Last produced event
 	OpMask     fsnotify.Op         // Event Mask
-	Flag       bool                // True if has produced, False otherwise
+	Flag       atomic.Bool         // True if has produced, False otherwise
+	mu         sync.RWMutex        // Sending mutex
 }
 
 // CreateProducer creates a new EventProducer and returns the producer and its event channel.
@@ -44,7 +47,9 @@ func NewFileWatcher(ch *WatcherChannel, conf *config.ClientConf) (*FileWatcher, 
 		FileCache:  cache,
 		Config:     conf,
 		LastEvent:  NotificationEvent{},
-		Flag:       false}
+	}
+
+	fwatcher.Flag.Store(false) // Store false as initial value
 
 	// Prepare the when producing the file
 	fwatcher.Reset()
@@ -74,7 +79,7 @@ func (fw *FileWatcher) Reset() {
 	fw.FileList = []string{}           // Empty the entire list of file of the file watcher
 	fw.FileCache.EraseCache()          // Erase the entire cache
 	fw.LastEvent = NotificationEvent{} // Remove the last saved event
-	fw.Flag = false
+	fw.Flag.Store(false)
 
 	fw.loadConf() // Reload the configuration
 }
@@ -223,30 +228,36 @@ func (fw *FileWatcher) loadCache() {
 	}
 }
 
-func (fw *FileWatcher) handleCreateEvent(event *NotificationEvent) {
+func (fw *FileWatcher) handleCreateEvent(event *NotificationEvent) bool {
 	// If no previous event has ever occurred then return
-	if fw.Flag {
+	if fw.Flag.Load() {
 		// If the difference in time is grater then the threshold returns
 		diff := event.Timestamp.Sub(fw.LastEvent.Timestamp)
 		if diff > THRESHOLD || !fw.LastEvent.Op.Has(Remove|Rename) {
-			return
+			return false
 		}
 
 		// Set the correct type that is either move or rename
-		if fw.LastEvent.Op.Has(Remove) {
-			event.Op = Move
-		} else {
-			event.Op = Rename
-		}
-
 		event.OldPath = fw.LastEvent.Path
+		curr_dir := filepath.Dir(event.Path)
+		prev_dir := filepath.Dir(event.OldPath)
+
+		if curr_dir == prev_dir {
+			event.Op = Rename
+		} else {
+			event.Op = Move
+		}
 
 		// If the event is either remove or rename and the old path
 		// pointed by this event was the old conf file, then we need
 		// to set the Reload conf flag to true
 		check := event.Op & (Move | Rename)
 		event.ReloadConf = check != 0 && event.OldPath == fw.Config.Path
+
+		return true
 	}
+
+	return false
 }
 
 func (fw *FileWatcher) applyOperations(event *NotificationEvent) {
@@ -271,6 +282,18 @@ func (fw *FileWatcher) applyOperations(event *NotificationEvent) {
 	}
 }
 
+func (fw *FileWatcher) sendLastEvent() {
+	fw.mu.Lock()
+	defer fw.mu.Unlock()
+
+	// Send the last event into the watcher -> sender channel
+	if !fw.LastEvent.Sent {
+		utils.INFO(fw.LastEvent)
+		fw.Channel.EventCh <- fw.LastEvent
+		fw.LastEvent.Sent = true
+	}
+}
+
 func (fw *FileWatcher) produceEvent(event fsnotify.Event, prev, curr string, time time.Time) {
 
 	curr_event := NotificationEvent{
@@ -280,16 +303,18 @@ func (fw *FileWatcher) produceEvent(event fsnotify.Event, prev, curr string, tim
 		OldPath:    event.Name,
 		Timestamp:  time,
 		ReloadConf: false,
+		Sent:       false,
 	}
 
-	was_rename := false
+	was_rename_or_remove := false
+	create_result := false
 
 	// Create the diffmatchpath object
 	dm := diffmatchpatch.New()
 
 	// Check the type of the event and perform releated operations
-	switch event.Op {
-	case fsnotify.Write:
+	switch {
+	case event.Op.Has(fsnotify.Write):
 		patches := dm.PatchMake(prev, curr)
 
 		if len(patches) == 0 {
@@ -304,28 +329,58 @@ func (fw *FileWatcher) produceEvent(event fsnotify.Event, prev, curr string, tim
 			curr_event.ReloadConf = true
 		}
 
-	case fsnotify.Create:
+	case event.Op.Has(fsnotify.Create):
 		// A new folder or file has been created
-		fw.handleCreateEvent(&curr_event)
+		create_result = fw.handleCreateEvent(&curr_event)
 
-	case fsnotify.Rename:
-		// Renames are handled as a combination of rename|remove and
-		// immediately successfully create events.
-		curr_event.Op = Remove
-		was_rename = true
+	case event.Op.Has(fsnotify.Rename | fsnotify.Remove):
+		// If the current event is either rename or remove than we need to
+		// wait before sending the notification, since it might be either
+		// a move or an actual rename operation. Rename and move operations
+		// are always followed immediately by a Create operation
+		if event.Op.Has(fsnotify.Rename) {
+			// Temporary change the event type to remove when applying
+			// the operation, since Rename requires the new file to already
+			// exists. However, when the RENAME event is received the file
+			// has not yet been created by the operative system
+			curr_event.Op = Remove
+		}
+
+		was_rename_or_remove = true
 	}
 
-	utils.INFO(curr_event)
 	fw.applyOperations(&curr_event) // Apply the operations of the event
 
-	// Reset the rename operation if necessary
-	if was_rename {
+	// Restore the original operation type if necessary
+	if was_rename_or_remove && event.Op.Has(fsnotify.Rename) {
 		curr_event.Op = Rename
 	}
 
-	fw.Channel.EventCh <- curr_event
+	// If the handleCreateEvent returns false then send the last received
+	// event if it was either a remove or a rename event. Here we also need
+	// to check if the event has not been already sent by another goroutine.
+	if !create_result && fw.Flag.Load() && fw.LastEvent.Op.Has(Remove) {
+		fw.sendLastEvent()
+	}
+
+	// If the event is remove or rename do not send, since we need
+	// to wait a successive create event to check for the real type
+	if !was_rename_or_remove {
+		utils.INFO(curr_event)
+		fw.Channel.EventCh <- curr_event
+
+		// Here we should reset the original event type
+		curr_event.Op = InternalType(event.Op)
+		curr_event.Sent = true
+	}
+
+	// Lock the mutex for the last event variable which is
+	// concurrently accessed also by the timeoutSender goroutine
+	fw.mu.Lock()
 	fw.LastEvent = curr_event
-	fw.Flag = true
+	fw.mu.Unlock()
+
+	fw.Flag.Store(true)
 }
 
 // handleFsEvent puts the received event into the channel
@@ -340,7 +395,7 @@ func (fw *FileWatcher) handleFsEvent(event fsnotify.Event) {
 	// Before producing events we need to check if the current event
 	// is the same as previous. In that case, there must be a
 	// threshold to validate that the new event should be produced or not
-	if fw.Flag {
+	if fw.Flag.Load() {
 		prev_name := fw.LastEvent.Path
 		prev_op := fw.LastEvent.Op
 
@@ -399,21 +454,29 @@ func (fw *FileWatcher) handleFsEvent(event fsnotify.Event) {
 	}
 }
 
-func (fw *FileWatcher) catchEvents() {
+func (fw *FileWatcher) catchEventsRoutine() {
 	for event := range fw.InternalCh {
 		fw.handleFsEvent(event)
 	}
 }
 
-// The Producer loop which produces the events
-func (fw *FileWatcher) Run(ctx context.Context) {
-	// Starts the cache
-	exp_interval := fw.Config.FS_Notification.ExpirationInt
-	fw.FileCache.Run(ctx, time.Duration(exp_interval)*time.Second)
+func (fw *FileWatcher) timeoutSenderRoutine() {
+	for {
+		if !fw.Flag.Load() {
+			time.Sleep(100 * time.Millisecond)
+		}
 
-	// Start the go routine for catching events
-	go fw.catchEvents()
+		fw.mu.RLock()
+		last_timestamp := fw.LastEvent.Timestamp
+		fw.mu.RUnlock()
 
+		if time.Since(last_timestamp) > time.Second {
+			fw.sendLastEvent()
+		}
+	}
+}
+
+func (fw *FileWatcher) notificationRoutine(ctx context.Context) {
 	for {
 		select {
 		case event, ok := <-fw.Watcher.Events:
@@ -434,4 +497,16 @@ func (fw *FileWatcher) Run(ctx context.Context) {
 			return
 		}
 	}
+}
+
+// The Producer loop which produces the events
+func (fw *FileWatcher) Run(ctx context.Context) {
+	// Starts the cache
+	exp_interval := fw.Config.FS_Notification.ExpirationInt
+	fw.FileCache.Run(ctx, time.Duration(exp_interval)*time.Second)
+
+	// Start the go routine for catching events and the timeout sender
+	go fw.catchEventsRoutine()
+	go fw.timeoutSenderRoutine()
+	go fw.notificationRoutine(ctx)
 }

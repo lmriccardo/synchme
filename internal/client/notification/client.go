@@ -55,10 +55,12 @@ func (c *gRPC_Client) Close() {
 
 func (c *gRPC_Client) Run(ctx context.Context) {
 	go c.fileSyncRoutine(ctx) // Start the file sync routine
-	for range ctx.Done() {
-		utils.INFO("[RPC_Client] gRPC Client cancelled: ", ctx.Err())
-		return
-	}
+	go func() {
+		for range ctx.Done() {
+			utils.INFO("[RPC_Client] gRPC Client cancelled: ", ctx.Err())
+			return
+		}
+	}()
 }
 
 func (c *gRPC_Client) processEvent(ctx context.Context, stream *SyncStream, event *NotificationEvent) {

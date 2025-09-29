@@ -4,10 +4,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/lmriccardo/synchme/internal/client/notification"
+	"github.com/lmriccardo/synchme/internal/client/utils"
 	"github.com/sergi/go-diff/diffmatchpatch"
 )
 
@@ -27,6 +29,7 @@ type Stubber struct {
 	Ch       chan notification.NotificationEvent
 	Pipeline []Task
 	Expected []SimpleEvent
+	wg       sync.WaitGroup
 }
 
 func NewStubber(ch chan notification.NotificationEvent) *Stubber {
@@ -47,8 +50,9 @@ func (s *Stubber) Create(path ...string) error {
 	}
 
 	s.Expected = append(s.Expected, SimpleEvent{
-		Type: notification.Create,
-		Path: path[0],
+		Type:    notification.Create,
+		Path:    path[0],
+		OldPath: path[0],
 	})
 
 	return nil
@@ -59,14 +63,22 @@ func (s *Stubber) Mkdir(path ...string) error {
 		return errors.New("Mkdir needs at least one argument")
 	}
 
-	if err := os.MkdirAll(path[0], 0777); err != nil {
+	// Creates all the paths
+	err := utils.MkdirAll(path[0], 0777,
+		func(path string) error {
+			s.Expected = append(s.Expected, SimpleEvent{
+				Type:    notification.Create,
+				Path:    path,
+				OldPath: path,
+			})
+
+			return nil
+		},
+	)
+
+	if err != nil {
 		return err
 	}
-
-	s.Expected = append(s.Expected, SimpleEvent{
-		Type: notification.Create,
-		Path: path[0],
-	})
 
 	return nil
 }
@@ -77,28 +89,18 @@ func (s *Stubber) Remove(path ...string) error {
 	}
 
 	curr_path := path[0]
-	info, err := os.Stat(curr_path)
-
-	if err != nil {
+	if err := utils.RemoveAll(curr_path,
+		func(path string) error {
+			s.Expected = append(s.Expected, SimpleEvent{
+				Type:    notification.Remove,
+				Path:    path,
+				OldPath: path,
+			})
+			return nil
+		},
+	); err != nil {
 		return err
 	}
-
-	var fn func(string) error
-
-	if info.IsDir() {
-		fn = os.RemoveAll
-	} else {
-		fn = os.Remove
-	}
-
-	if err := fn(curr_path); err != nil {
-		return err
-	}
-
-	s.Expected = append(s.Expected, SimpleEvent{
-		Type: notification.Remove,
-		Path: path[0],
-	})
 
 	return nil
 }
@@ -118,7 +120,7 @@ func (s *Stubber) Rename(path ...string) error {
 	var op_type notification.InternalType
 
 	if src_parent == dst_parent {
-		op_type = notification.Remove
+		op_type = notification.Rename
 	} else {
 		op_type = notification.Move
 	}
@@ -161,7 +163,8 @@ func (s *Stubber) Write(path ...string) error {
 
 	s.Expected = append(s.Expected, SimpleEvent{
 		Type:    notification.Write,
-		Path:    path[1],
+		Path:    path[0],
+		OldPath: path[0],
 		Patches: dw.PatchMake(prev_content, curr_content),
 	})
 
@@ -169,15 +172,15 @@ func (s *Stubber) Write(path ...string) error {
 }
 
 func (s *Stubber) runPipeline(t *testing.T) {
-	go func() {
+	s.wg.Go(func() {
 		for _, task := range s.Pipeline {
 			if err := task.Fn(task.Args...); err != nil {
 				t.Error("Error when running tasks: ", err)
 			}
 
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 		}
-	}()
+	})
 }
 
 func (s *Stubber) Run(t *testing.T, timeout time.Duration) []notification.NotificationEvent {
@@ -204,5 +207,6 @@ collectLoop:
 		}
 	}
 
+	s.wg.Wait() // wait for pipeline to complete
 	return result
 }

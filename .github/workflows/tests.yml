@@ -2,7 +2,7 @@ name: Go Unit-test and linting
 
 on:
   push:
-    branches: [main]
+    branches: [testing]
   pull_request:
     branches: [main]
 
@@ -39,6 +39,12 @@ jobs:
       # Install dependencies
       - name: Install dependencies
         run: go mod tidy
+
+      - name: Patch config for CI
+        run: |
+          sed -i 's|^paths = .*|paths = ["'"$(pwd)"'/test1"]|' test/configs/test_config.toml
+          mkdir -p ./test1
+          cat test/configs/test_config.toml
 
       # Run tests
       - name: Run tests

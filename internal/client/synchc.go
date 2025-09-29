@@ -28,14 +28,14 @@ func Run(conf_file_path string) {
 
 	utils.INFO("Read configuration ", conf_file_path)
 
-	// Creates a new producer with 0 chan buffer size
-	producer, err := notification.NewFileWatcher(ch, client_conf)
+	// Creates a new watcher with 0 chan buffer size
+	watcher, err := notification.NewFileWatcher(ch, client_conf)
 	if err != nil {
 		utils.FATAL("Fatal Error: ", err)
 	}
 
-	defer producer.Close()
-	go producer.Run(ctx)
+	defer watcher.Close()
+	watcher.Run(ctx)
 
 	// Creates the gRPC client for communicating with the server
 	client, err := notification.NewClient(client_conf, ch)
@@ -44,7 +44,7 @@ func Run(conf_file_path string) {
 	}
 
 	defer client.Close()
-	go client.Run(ctx)
+	client.Run(ctx)
 
 	// Create a channel to catch OS signals (CTRL+C)
 	sigs := make(chan os.Signal, 1)
