@@ -51,7 +51,7 @@ func Run() {
 
 	grpc_server := grpc.NewServer()
 	filesync.RegisterFileSynchServiceServer(grpc_server, &server{})
-	log.Println("gRPC server listening on :50051")
+	log.Println("gRPC server listening on localhost:50051")
 
 	if err := grpc_server.Serve(lis); err != nil {
 		log.Fatalf("failed to serve: %v", err)

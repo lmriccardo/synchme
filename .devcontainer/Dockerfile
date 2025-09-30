@@ -60,3 +60,5 @@ RUN PB_REL="https://github.com/protocolbuffers/protobuf/releases" \
     && curl -L -o /tmp/protoc.zip $PB_REL/download/v30.2/protoc-30.2-linux-x86_64.zip \
     && unzip /tmp/protoc.zip -d $HOME/.local \
     && rm /tmp/protoc.zip
+
+RUN go mod download github.com/google/uuid@v1.6.0
