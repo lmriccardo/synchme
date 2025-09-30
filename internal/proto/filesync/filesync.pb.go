@@ -26,7 +26,6 @@ type SyncMessage struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Types that are valid to be assigned to Msg:
 	//
-	//	*SyncMessage_Hello
 	//	*SyncMessage_Update
 	//	*SyncMessage_Rename
 	//	*SyncMessage_Remove
@@ -73,15 +72,6 @@ func (x *SyncMessage) GetMsg() isSyncMessage_Msg {
 	return nil
 }
 
-func (x *SyncMessage) GetHello() *ClientHello {
-	if x != nil {
-		if x, ok := x.Msg.(*SyncMessage_Hello); ok {
-			return x.Hello
-		}
-	}
-	return nil
-}
-
 func (x *SyncMessage) GetUpdate() *FileUpdate {
 	if x != nil {
 		if x, ok := x.Msg.(*SyncMessage_Update); ok {
@@ -122,27 +112,21 @@ type isSyncMessage_Msg interface {
 	isSyncMessage_Msg()
 }
 
-type SyncMessage_Hello struct {
-	Hello *ClientHello `protobuf:"bytes,1,opt,name=hello,proto3,oneof"`
-}
-
 type SyncMessage_Update struct {
-	Update *FileUpdate `protobuf:"bytes,2,opt,name=update,proto3,oneof"`
+	Update *FileUpdate `protobuf:"bytes,1,opt,name=update,proto3,oneof"`
 }
 
 type SyncMessage_Rename struct {
-	Rename *FileRename `protobuf:"bytes,3,opt,name=rename,proto3,oneof"`
+	Rename *FileRename `protobuf:"bytes,2,opt,name=rename,proto3,oneof"`
 }
 
 type SyncMessage_Remove struct {
-	Remove *FileRemove `protobuf:"bytes,4,opt,name=remove,proto3,oneof"`
+	Remove *FileRemove `protobuf:"bytes,3,opt,name=remove,proto3,oneof"`
 }
 
 type SyncMessage_Ack struct {
-	Ack *SyncAck `protobuf:"bytes,5,opt,name=ack,proto3,oneof"`
+	Ack *SyncAck `protobuf:"bytes,4,opt,name=ack,proto3,oneof"`
 }
-
-func (*SyncMessage_Hello) isSyncMessage_Msg() {}
 
 func (*SyncMessage_Update) isSyncMessage_Msg() {}
 
@@ -151,59 +135,6 @@ func (*SyncMessage_Rename) isSyncMessage_Msg() {}
 func (*SyncMessage_Remove) isSyncMessage_Msg() {}
 
 func (*SyncMessage_Ack) isSyncMessage_Msg() {}
-
-// Sent by the client when it connects after authentication
-type ClientHello struct {
-	state           protoimpl.MessageState `protogen:"open.v1"`
-	ClientId        string                 `protobuf:"bytes,1,opt,name=client_id,json=clientId,proto3" json:"client_id,omitempty"`                      // Unique ID for the client (client-side generation)
-	SubscribedPaths []string               `protobuf:"bytes,2,rep,name=subscribed_paths,json=subscribedPaths,proto3" json:"subscribed_paths,omitempty"` // List of paths it wants to sync
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
-}
-
-func (x *ClientHello) Reset() {
-	*x = ClientHello{}
-	mi := &file_filesync_proto_msgTypes[1]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ClientHello) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ClientHello) ProtoMessage() {}
-
-func (x *ClientHello) ProtoReflect() protoreflect.Message {
-	mi := &file_filesync_proto_msgTypes[1]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ClientHello.ProtoReflect.Descriptor instead.
-func (*ClientHello) Descriptor() ([]byte, []int) {
-	return file_filesync_proto_rawDescGZIP(), []int{1}
-}
-
-func (x *ClientHello) GetClientId() string {
-	if x != nil {
-		return x.ClientId
-	}
-	return ""
-}
-
-func (x *ClientHello) GetSubscribedPaths() []string {
-	if x != nil {
-		return x.SubscribedPaths
-	}
-	return nil
-}
 
 // Metadata for the message
 type MessageMeta struct {
@@ -217,7 +148,7 @@ type MessageMeta struct {
 
 func (x *MessageMeta) Reset() {
 	*x = MessageMeta{}
-	mi := &file_filesync_proto_msgTypes[2]
+	mi := &file_filesync_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -229,7 +160,7 @@ func (x *MessageMeta) String() string {
 func (*MessageMeta) ProtoMessage() {}
 
 func (x *MessageMeta) ProtoReflect() protoreflect.Message {
-	mi := &file_filesync_proto_msgTypes[2]
+	mi := &file_filesync_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -242,7 +173,7 @@ func (x *MessageMeta) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MessageMeta.ProtoReflect.Descriptor instead.
 func (*MessageMeta) Descriptor() ([]byte, []int) {
-	return file_filesync_proto_rawDescGZIP(), []int{2}
+	return file_filesync_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *MessageMeta) GetOriginClient() string {
@@ -282,7 +213,7 @@ type FileUpdate struct {
 
 func (x *FileUpdate) Reset() {
 	*x = FileUpdate{}
-	mi := &file_filesync_proto_msgTypes[3]
+	mi := &file_filesync_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -294,7 +225,7 @@ func (x *FileUpdate) String() string {
 func (*FileUpdate) ProtoMessage() {}
 
 func (x *FileUpdate) ProtoReflect() protoreflect.Message {
-	mi := &file_filesync_proto_msgTypes[3]
+	mi := &file_filesync_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -307,7 +238,7 @@ func (x *FileUpdate) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FileUpdate.ProtoReflect.Descriptor instead.
 func (*FileUpdate) Descriptor() ([]byte, []int) {
-	return file_filesync_proto_rawDescGZIP(), []int{3}
+	return file_filesync_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *FileUpdate) GetMeta() *MessageMeta {
@@ -371,7 +302,7 @@ type FileRename struct {
 
 func (x *FileRename) Reset() {
 	*x = FileRename{}
-	mi := &file_filesync_proto_msgTypes[4]
+	mi := &file_filesync_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -383,7 +314,7 @@ func (x *FileRename) String() string {
 func (*FileRename) ProtoMessage() {}
 
 func (x *FileRename) ProtoReflect() protoreflect.Message {
-	mi := &file_filesync_proto_msgTypes[4]
+	mi := &file_filesync_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -396,7 +327,7 @@ func (x *FileRename) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FileRename.ProtoReflect.Descriptor instead.
 func (*FileRename) Descriptor() ([]byte, []int) {
-	return file_filesync_proto_rawDescGZIP(), []int{4}
+	return file_filesync_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *FileRename) GetMeta() *MessageMeta {
@@ -431,7 +362,7 @@ type FileRemove struct {
 
 func (x *FileRemove) Reset() {
 	*x = FileRemove{}
-	mi := &file_filesync_proto_msgTypes[5]
+	mi := &file_filesync_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -443,7 +374,7 @@ func (x *FileRemove) String() string {
 func (*FileRemove) ProtoMessage() {}
 
 func (x *FileRemove) ProtoReflect() protoreflect.Message {
-	mi := &file_filesync_proto_msgTypes[5]
+	mi := &file_filesync_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -456,7 +387,7 @@ func (x *FileRemove) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FileRemove.ProtoReflect.Descriptor instead.
 func (*FileRemove) Descriptor() ([]byte, []int) {
-	return file_filesync_proto_rawDescGZIP(), []int{5}
+	return file_filesync_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *FileRemove) GetMeta() *MessageMeta {
@@ -479,7 +410,7 @@ type SyncAck struct {
 	Path          string                 `protobuf:"bytes,1,opt,name=path,proto3" json:"path,omitempty"`                               // The path relative to the ackd update
 	Timestamp     int64                  `protobuf:"varint,2,opt,name=timestamp,proto3" json:"timestamp,omitempty"`                    // The timestamp of the acknowledgment
 	Version       int64                  `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`                        // The version of the file
-	FromClient    string                 `protobuf:"bytes,4,opt,name=from_client,json=fromClient,proto3" json:"from_client,omitempty"` // The client sendind the ack
+	FromClient    string                 `protobuf:"bytes,4,opt,name=from_client,json=fromClient,proto3" json:"from_client,omitempty"` // The client sending the ack
 	ToClient      string                 `protobuf:"bytes,5,opt,name=to_client,json=toClient,proto3" json:"to_client,omitempty"`       // The origin client that sent the update
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -487,7 +418,7 @@ type SyncAck struct {
 
 func (x *SyncAck) Reset() {
 	*x = SyncAck{}
-	mi := &file_filesync_proto_msgTypes[6]
+	mi := &file_filesync_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -499,7 +430,7 @@ func (x *SyncAck) String() string {
 func (*SyncAck) ProtoMessage() {}
 
 func (x *SyncAck) ProtoReflect() protoreflect.Message {
-	mi := &file_filesync_proto_msgTypes[6]
+	mi := &file_filesync_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -512,7 +443,7 @@ func (x *SyncAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncAck.ProtoReflect.Descriptor instead.
 func (*SyncAck) Descriptor() ([]byte, []int) {
-	return file_filesync_proto_rawDescGZIP(), []int{6}
+	return file_filesync_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *SyncAck) GetPath() string {
@@ -554,17 +485,13 @@ var File_filesync_proto protoreflect.FileDescriptor
 
 const file_filesync_proto_rawDesc = "" +
 	"\n" +
-	"\x0efilesync.proto\x12\bfilesync\"\xfa\x01\n" +
-	"\vSyncMessage\x12-\n" +
-	"\x05hello\x18\x01 \x01(\v2\x15.filesync.ClientHelloH\x00R\x05hello\x12.\n" +
-	"\x06update\x18\x02 \x01(\v2\x14.filesync.FileUpdateH\x00R\x06update\x12.\n" +
-	"\x06rename\x18\x03 \x01(\v2\x14.filesync.FileRenameH\x00R\x06rename\x12.\n" +
-	"\x06remove\x18\x04 \x01(\v2\x14.filesync.FileRemoveH\x00R\x06remove\x12%\n" +
-	"\x03ack\x18\x05 \x01(\v2\x11.filesync.SyncAckH\x00R\x03ackB\x05\n" +
-	"\x03msg\"U\n" +
-	"\vClientHello\x12\x1b\n" +
-	"\tclient_id\x18\x01 \x01(\tR\bclientId\x12)\n" +
-	"\x10subscribed_paths\x18\x02 \x03(\tR\x0fsubscribedPaths\"j\n" +
+	"\x0efilesync.proto\x12\bfilesync\"\xcb\x01\n" +
+	"\vSyncMessage\x12.\n" +
+	"\x06update\x18\x01 \x01(\v2\x14.filesync.FileUpdateH\x00R\x06update\x12.\n" +
+	"\x06rename\x18\x02 \x01(\v2\x14.filesync.FileRenameH\x00R\x06rename\x12.\n" +
+	"\x06remove\x18\x03 \x01(\v2\x14.filesync.FileRemoveH\x00R\x06remove\x12%\n" +
+	"\x03ack\x18\x04 \x01(\v2\x11.filesync.SyncAckH\x00R\x03ackB\x05\n" +
+	"\x03msg\"j\n" +
 	"\vMessageMeta\x12#\n" +
 	"\rorigin_client\x18\x01 \x01(\tR\foriginClient\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\x03R\aversion\x12\x1c\n" +
@@ -610,32 +537,30 @@ func file_filesync_proto_rawDescGZIP() []byte {
 	return file_filesync_proto_rawDescData
 }
 
-var file_filesync_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_filesync_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
 var file_filesync_proto_goTypes = []any{
 	(*SyncMessage)(nil), // 0: filesync.SyncMessage
-	(*ClientHello)(nil), // 1: filesync.ClientHello
-	(*MessageMeta)(nil), // 2: filesync.MessageMeta
-	(*FileUpdate)(nil),  // 3: filesync.FileUpdate
-	(*FileRename)(nil),  // 4: filesync.FileRename
-	(*FileRemove)(nil),  // 5: filesync.FileRemove
-	(*SyncAck)(nil),     // 6: filesync.SyncAck
+	(*MessageMeta)(nil), // 1: filesync.MessageMeta
+	(*FileUpdate)(nil),  // 2: filesync.FileUpdate
+	(*FileRename)(nil),  // 3: filesync.FileRename
+	(*FileRemove)(nil),  // 4: filesync.FileRemove
+	(*SyncAck)(nil),     // 5: filesync.SyncAck
 }
 var file_filesync_proto_depIdxs = []int32{
-	1, // 0: filesync.SyncMessage.hello:type_name -> filesync.ClientHello
-	3, // 1: filesync.SyncMessage.update:type_name -> filesync.FileUpdate
-	4, // 2: filesync.SyncMessage.rename:type_name -> filesync.FileRename
-	5, // 3: filesync.SyncMessage.remove:type_name -> filesync.FileRemove
-	6, // 4: filesync.SyncMessage.ack:type_name -> filesync.SyncAck
-	2, // 5: filesync.FileUpdate.meta:type_name -> filesync.MessageMeta
-	2, // 6: filesync.FileRename.meta:type_name -> filesync.MessageMeta
-	2, // 7: filesync.FileRemove.meta:type_name -> filesync.MessageMeta
-	0, // 8: filesync.FileSynchService.Sync:input_type -> filesync.SyncMessage
-	0, // 9: filesync.FileSynchService.Sync:output_type -> filesync.SyncMessage
-	9, // [9:10] is the sub-list for method output_type
-	8, // [8:9] is the sub-list for method input_type
-	8, // [8:8] is the sub-list for extension type_name
-	8, // [8:8] is the sub-list for extension extendee
-	0, // [0:8] is the sub-list for field type_name
+	2, // 0: filesync.SyncMessage.update:type_name -> filesync.FileUpdate
+	3, // 1: filesync.SyncMessage.rename:type_name -> filesync.FileRename
+	4, // 2: filesync.SyncMessage.remove:type_name -> filesync.FileRemove
+	5, // 3: filesync.SyncMessage.ack:type_name -> filesync.SyncAck
+	1, // 4: filesync.FileUpdate.meta:type_name -> filesync.MessageMeta
+	1, // 5: filesync.FileRename.meta:type_name -> filesync.MessageMeta
+	1, // 6: filesync.FileRemove.meta:type_name -> filesync.MessageMeta
+	0, // 7: filesync.FileSynchService.Sync:input_type -> filesync.SyncMessage
+	0, // 8: filesync.FileSynchService.Sync:output_type -> filesync.SyncMessage
+	8, // [8:9] is the sub-list for method output_type
+	7, // [7:8] is the sub-list for method input_type
+	7, // [7:7] is the sub-list for extension type_name
+	7, // [7:7] is the sub-list for extension extendee
+	0, // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_filesync_proto_init() }
@@ -644,7 +569,6 @@ func file_filesync_proto_init() {
 		return
 	}
 	file_filesync_proto_msgTypes[0].OneofWrappers = []any{
-		(*SyncMessage_Hello)(nil),
 		(*SyncMessage_Update)(nil),
 		(*SyncMessage_Rename)(nil),
 		(*SyncMessage_Remove)(nil),
@@ -656,7 +580,7 @@ func file_filesync_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_filesync_proto_rawDesc), len(file_filesync_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

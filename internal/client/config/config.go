@@ -8,7 +8,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/go-playground/validator/v10"
-	"github.com/lmriccardo/synchme/internal/client/utils"
+	"github.com/lmriccardo/synchme/internal/utils"
 )
 
 // Configuration-releated settings

@@ -9,7 +9,7 @@ import (
 
 	"github.com/lmriccardo/synchme/internal/client/config"
 	"github.com/lmriccardo/synchme/internal/client/notification"
-	"github.com/lmriccardo/synchme/internal/client/utils"
+	"github.com/lmriccardo/synchme/internal/utils"
 )
 
 func Run(conf_file_path string) {

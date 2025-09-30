@@ -1,0 +1,41 @@
+syntax = "proto3";
+
+package session;
+
+import "google/protobuf/empty.proto";
+
+option go_package = "github.com/synchme/internal/proto/session;session";
+
+// Sent by the client when it connects after authentication
+message ClientHello {
+    string client_id = 1;                 // Unique ID for the client (client-side generation)
+    repeated string subscribed_paths = 2; // List of paths it wants to sync
+}
+
+// Sent by the server as response to the ClientHello message
+message HelloResponse {
+    string          server_ns        = 1; // The server that responded to the request
+    string          client_id        = 2; // Unique ID for the client (client-side generation)
+    repeated string subscribed_paths = 3; // List of paths actually assigned to the client
+
+    enum Status {
+        SUCCESS = 0; // The request has been accepted
+        FAILURE = 1; // The request has not been accepted
+    }
+
+    Status status = 4; // The response status
+    string reason = 5; // An optional msg indicating the error reason
+}
+
+// Sent periodically by the client to informs the server
+// that the current client is alive and ready for reaching
+// or pushing synchronization updates.
+message HeartbeatMsg {
+    string client_id = 1; // The client ID
+    int64  timestamp = 2; // The timestamp
+}
+
+service Session {
+    rpc Hello(ClientHello) returns (HelloResponse);
+    rpc Heartbeat(HeartbeatMsg) returns (google.protobuf.Empty);
+}

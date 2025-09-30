@@ -18,18 +18,11 @@ service FileSynchService {
 // A generic wrapper for messages in the stream
 message SyncMessage {
     oneof msg {
-        ClientHello hello  = 1;
-        FileUpdate  update = 2;
-        FileRename  rename = 3;
-        FileRemove  remove = 4;
-        SyncAck     ack    = 5;
+        FileUpdate  update = 1;
+        FileRename  rename = 2;
+        FileRemove  remove = 3;
+        SyncAck     ack    = 4;
     }
-}
-
-// Sent by the client when it connects after authentication
-message ClientHello {
-    string client_id = 1;                 // Unique ID for the client (client-side generation)
-    repeated string subscribed_paths = 2; // List of paths it wants to sync
 }
 
 // Metadata for the message
@@ -68,6 +61,6 @@ message SyncAck {
     string path        = 1; // The path relative to the ackd update
     int64  timestamp   = 2; // The timestamp of the acknowledgment
     int64  version     = 3; // The version of the file
-    string from_client = 4; // The client sendind the ack
+    string from_client = 4; // The client sending the ack
     string to_client   = 5; // The origin client that sent the update
 }
