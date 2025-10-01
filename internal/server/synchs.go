@@ -10,9 +10,16 @@ import (
 	"github.com/lmriccardo/synchme/internal/proto/filesync"
 	"github.com/lmriccardo/synchme/internal/proto/healthcheck"
 	"github.com/lmriccardo/synchme/internal/proto/session"
+	"github.com/lmriccardo/synchme/internal/utils"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
+
+var Services = map[string]bool{
+	utils.FileSyncService:    true, // The file synchronization service is required
+	utils.HealthCheckService: true, // Also the healthcheck service is required
+	utils.SessionService:     true, // Not to mention the session service
+}
 
 type server struct {
 	filesync.UnimplementedFileSynchServer // embed for forward compatibility
@@ -43,12 +50,28 @@ func (s *server) Sync(stream filesync.FileSynch_SyncServer) error {
 	}
 }
 
+// Check returns the status of a registered service
 func (s *server) Check(ctx context.Context, req *healthcheck.HealthCheckRequest) (*healthcheck.HealthCheckResponse, error) {
 	return &healthcheck.HealthCheckResponse{Status: healthcheck.HealthCheckResponse_SERVING}, nil
 }
 
+// Heartbeat It does not returns anything, still it is used so that the client knows
+// that the server is still alive (at least)
 func (s *server) Heartbeat(ctx context.Context, req *session.HeartbeatMsg) (*emptypb.Empty, error) {
 	return &emptypb.Empty{}, nil
+}
+
+// Services returns a list of all services registered to the server
+func (s *server) Services(ctx context.Context, req *emptypb.Empty) (*session.ServicesResponse, error) {
+	services := []*session.ServicesResponse_Service{}
+	for service_name, required := range Services {
+		services = append(services, &session.ServicesResponse_Service{
+			Name:     service_name,
+			Required: required,
+		})
+	}
+
+	return &session.ServicesResponse{Services: services}, nil
 }
 
 func Run() {

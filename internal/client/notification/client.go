@@ -3,9 +3,12 @@ package notification
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"strconv"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -16,10 +19,14 @@ import (
 	"github.com/lmriccardo/synchme/internal/utils"
 	"github.com/sergi/go-diff/diffmatchpatch"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-const CHUNK_SIZE = 512 * 1024 // 524288
+const CHUNK_SIZE = 64 * 1024 // 65536
+
+// --- gRPC Client Implementation ---
 
 type gRPC_Client struct {
 	Config         *config.ClientConf       // The client configuration
@@ -29,20 +36,61 @@ type gRPC_Client struct {
 	HealthService  healthcheck.HealthClient // The healthcheck client service
 	SessionService session.SessionClient    // The session client service
 	ClientID       uuid.UUID                // The client ID
-	ServerActive   bool                     // If the current server is active (connection and service up)
+	Status         utils.ServerStatus       // The server status for each service
+	ServerActive   atomic.Bool              // If the current server is active (connection and service up)
 	ctx            context.Context          // Clear exit token
-	cancel         context.CancelFunc       // Context cancellation functio
+	cancel         context.CancelFunc       // Context cancellation function
+	stop_ch        chan struct{}            // A channel for easy stopping of backoff
+	wg             sync.WaitGroup           // Synchronization mechanism for clean exit
 }
 
 type SyncStream = grpc.BidiStreamingClient[filesync.SyncMessage, filesync.SyncMessage]
 
 func NewClient(conf *config.ClientConf, ch *WatcherChannel) *gRPC_Client {
-	return &gRPC_Client{Config: conf, EventCh: ch, ClientID: uuid.New(), ServerActive: false}
+	return &gRPC_Client{
+		Config:   conf,
+		EventCh:  ch,
+		ClientID: uuid.New(),
+		Status: utils.ServerStatus{
+			Statuses:           make(map[string]utils.ServiceStatus),
+			RegisteredServices: make([]string, 0),
+			Required:           make(map[string]bool),
+		},
+		stop_ch: make(chan struct{}),
+	}
+}
+
+func (c *gRPC_Client) Close() {
+	c.wg.Wait()
+	_ = c.internalClose()
+}
+
+func (c *gRPC_Client) internalClose() error {
+	var err error
+
+	if c.Connection != nil {
+		if err = c.Connection.Close(); err != nil {
+			utils.ERROR("Error when closing connection: ", err)
+		}
+
+		c.Connection = nil
+	}
+
+	// Also ensure that the internal context is cancelled if close
+	// is called outside Run's retry logic
+	if c.cancel != nil {
+		c.cancel()
+	}
+
+	return err
 }
 
 // CreateRpcClient connects the client with the server specified in the configuration
 func (c *gRPC_Client) CreateRpcClient() error {
 	utils.INFO("[RPC_Client] Attempting connection to the gRPC server")
+
+	// Close internal connection and cancel the context
+	_ = c.internalClose()
 
 	c.ctx, c.cancel = context.WithCancel(context.Background())
 
@@ -65,27 +113,73 @@ func (c *gRPC_Client) CreateRpcClient() error {
 	c.HealthService = healthcheck.NewHealthClient(conn)
 	c.SessionService = session.NewSessionClient(conn)
 
+	// Registers all the service to the ServerStatus field
+	if services, err := c.SessionService.Services(c.ctx, &emptypb.Empty{}); err != nil {
+		_ = c.internalClose() // Close connection if we can't get the service list
+		return errors.New("failed to get server service list")
+	} else {
+		// Clear old registrations before registering new ones
+		c.Status.Clear()
+
+		for _, service := range services.Services {
+			c.Status.Register(service.Name, service.Required)
+		}
+	}
+
+	// Set the initial status for each available service
+	c.updateStatus()
+
 	return nil
 }
 
-func (c *gRPC_Client) ServerHealthCheck(service string) error {
+func (c *gRPC_Client) updateStatus() {
+	for _, service_name := range c.Status.RegisteredServices {
+		service_status, err := c.ServerHealthCheck(service_name)
+		if err != nil {
+			utils.ERROR("[RPC_Client] Server healthcheck failed for service ", service_name, ": ", err)
+		}
+
+		c.Status.UpdateServiceStatus(service_name, service_status)
+	}
+
+	// Store the overall service status
+	c.ServerActive.Store(c.Status.GetOverallStatus() == utils.STATUS_SERVING)
+}
+
+func (c *gRPC_Client) ServerHealthCheck(service string) (utils.ServiceStatus, error) {
 	resp, err := c.HealthService.Check(c.ctx, &healthcheck.HealthCheckRequest{Service: service})
 	if err != nil {
-		utils.ERROR("[RPC_Client] server healthcheck failed: ", err)
-		return err
+		// Connection failed or HealthCheck service is down
+		return utils.STATUS_UNKNOWN, err
 	}
 
 	recv_status_code := resp.GetStatus()
 	if recv_status_code != healthcheck.HealthCheckResponse_SERVING {
-		return errors.New(recv_status_code.String())
+		return utils.ServiceStatus(recv_status_code), nil
 	}
 
-	return nil
+	return utils.STATUS_SERVING, nil
 }
 
-func (c *gRPC_Client) Close() {
-	if err := c.Connection.Close(); err != nil {
-		utils.ERROR("Error when closing connection: ", err)
+func (c *gRPC_Client) healthRoutine() {
+	for {
+		select {
+		case <-c.ctx.Done():
+			return
+
+		default:
+			// Only update the status if the connection is still open
+			if c.Connection != nil && c.Connection.GetState() != connectivity.Shutdown {
+				c.updateStatus() // Update all service status and overall one
+			} else {
+				// If the connection is not active then we should force put the
+				// server status to not active, otherwise we might continue
+				// to send informations
+				c.ServerActive.Store(false)
+			}
+
+			time.Sleep(time.Second) // Poll the status of the server every 1 second
+		}
 	}
 }
 
@@ -160,6 +254,12 @@ func (c *gRPC_Client) getMsgIterator(event *NotificationEvent) func() (*filesync
 }
 
 func (c *gRPC_Client) processEvent(stream *SyncStream, event *NotificationEvent) {
+	// Check if the server is active before sending any data
+	if !c.ServerActive.Load() {
+		utils.WARN("[RPC_Client] Server inactive, dropping file event: ", event.Path)
+		return
+	}
+
 	// Create and send the SyncMessage to the server
 	utils.INFO("[RPC_Client] Sending event: ", event)
 
@@ -170,6 +270,8 @@ func (c *gRPC_Client) processEvent(stream *SyncStream, event *NotificationEvent)
 		if msg, ok := next(); ok {
 			if err := (*stream).Send(msg); err != nil {
 				utils.ERROR("Error when seding Event: ", err)
+				c.cancel() // Cancel the client context to trigger a reconnection attempt
+				return     // Stop processing the event
 			}
 			continue
 		}
@@ -177,11 +279,12 @@ func (c *gRPC_Client) processEvent(stream *SyncStream, event *NotificationEvent)
 	}
 }
 
-func (c *gRPC_Client) syncRoutine(ctx context.Context) {
+func (c *gRPC_Client) syncRoutine() {
 	// Get the sync update stream from the Sync RPC
-	sync_stream, err := c.SyncService.Sync(ctx)
+	sync_stream, err := c.SyncService.Sync(c.ctx)
 	if err != nil {
 		utils.ERROR("[RPC_Client] File Sync Routine Error: ", err)
+		c.cancel() // Cancel context if stream creation fails
 		return
 	}
 
@@ -199,11 +302,13 @@ func (c *gRPC_Client) syncRoutine(ctx context.Context) {
 	for {
 		msg, err := sync_stream.Recv()
 		if err == io.EOF {
-			utils.WARN("[RPC_Client] Server closed stream")
+			utils.WARN("[RPC_Client] Server closed stream (EOF)")
+			c.cancel() // Treat server-side stream closure as a reason to reconnect
 			break
 		}
 		if err != nil {
-			utils.ERROR("[RPC_Client] Receiver Error: ", err)
+			utils.ERROR("[RPC_Client] Receiver Error, cancelling client context: ", err)
+			c.cancel() // Cancel context to trigger reconnection
 			break
 		}
 
@@ -218,8 +323,16 @@ func (c *gRPC_Client) getAuthTokenFromServer() (string, error) {
 
 // TODO: To be implemented
 func (c *gRPC_Client) Authenticate() error {
+	if !c.ServerActive.Load() {
+		// Fail fast if the health routine already determined the server is unhealthy.
+		return fmt.Errorf("server is not active; skipping authentication")
+	}
+
 	utils.INFO("[RPC_Client] Performing Authentication")
+
 	_, err := c.getAuthTokenFromServer()
+
+	// If authentication fails, we should stop proceeding and let the Run loop retry.
 	if err != nil {
 		utils.ERROR("[RPC_Client] Authentication failed: ", err)
 		return err
@@ -230,6 +343,11 @@ func (c *gRPC_Client) Authenticate() error {
 
 // TODO: To be extended and enhanced
 func (c *gRPC_Client) RegisterSession() error {
+	if !c.ServerActive.Load() {
+		// Fail fast if the health routine already determined the server is unhealthy.
+		return fmt.Errorf("server is not active; skipping session registration")
+	}
+
 	return nil
 }
 
@@ -246,6 +364,12 @@ func (c *gRPC_Client) heartbeatRoutine(interval time.Duration) {
 	for {
 		select {
 		case curr_time := <-ticker_ch:
+			// Here I only need that the server heartbeat service is active;
+			// I do not mind if other services are down.
+			if c.Status.GetServiceStatus(utils.SessionService) != utils.STATUS_SERVING {
+				continue
+			}
+
 			// The context is still alive and the duration has passed
 			// we need to send the heartbeat message to the server
 			if _, err := c.SessionService.Heartbeat(c.ctx,
@@ -255,6 +379,7 @@ func (c *gRPC_Client) heartbeatRoutine(interval time.Duration) {
 				},
 			); err != nil {
 				utils.WARN("[RPC_Client] Heartbeat failed: ", err)
+				c.cancel() // Cancel the context since even the heartbeat cannot be sent
 			}
 
 		case <-c.ctx.Done():
@@ -263,60 +388,108 @@ func (c *gRPC_Client) heartbeatRoutine(interval time.Duration) {
 	}
 }
 
+func Backoff(ch chan struct{}, backoff *time.Duration) bool {
+	// If client creation failed then backoff and rety
+	select {
+	case <-ch:
+		return false // Global shutdown
+	case <-time.After(*backoff):
+		*backoff = min(*backoff*2, 30*time.Second)
+	}
+
+	return true
+}
+
+func (c *gRPC_Client) internalRun() {
+	backoff := time.Second // Initialize the backoff time to 1 second
+	heartbeat_interval := time.Duration(c.Config.Network.HeartbeatInterval) * time.Second
+
+mainloop:
+	// Step 1: Loop until we cannot establish a first connection
+	for {
+		// First Create a gRPC client with the connection and the context.
+		// This method will set all the specific service client and the
+		// context with the releated cancellation function.
+		if err := c.CreateRpcClient(); err == nil {
+			break // Success! Exit the connection loop
+		} else {
+			utils.ERROR(
+				"[RPC_Client] gRPC Client creation failed. ",
+				"Retrying in ", backoff, " seconds: ",
+				err.Error(),
+			)
+
+			// Apply backoff operation
+			if res := Backoff(c.stop_ch, &backoff); !res {
+				return
+			}
+		}
+	}
+
+	// Step 2: Start the goroutine that updates the server status each second
+	go c.healthRoutine()
+
+	backoff = time.Second // Reset the backoff amount to 1 second
+
+	// Step 3: Main Operational Loop: Waits for health, performs auth/reg, and starts workers.
+	for {
+		// A. Wait for Server Health (Blocking until c.ServerActive is true)
+		for !c.ServerActive.Load() {
+			// Apply backoff operation
+			if res := Backoff(c.stop_ch, &backoff); !res {
+				return
+			}
+		}
+
+		backoff = time.Second // Reset the backoff amount to 1 second
+
+		// B.1: Authentication of the current client
+		if err := c.Authenticate(); err != nil {
+			time.Sleep(backoff)
+			continue
+		}
+
+		// B.2: Register the current client to a new session
+		if err := c.RegisterSession(); err != nil {
+			time.Sleep(backoff)
+			continue
+		}
+
+		// C. Start continuous operational routines (Heartbeat and Sync)
+		utils.INFO("[RPC_Client] Everything is up!! Starting operational routines.")
+
+		// Start the heartbeat routine and the filesynch service
+		go c.heartbeatRoutine(heartbeat_interval)
+		go c.syncRoutine()
+
+		// D. Block until the context is not closed. If the context is
+		// closed this means that the routine must exit
+		<-c.ctx.Done()
+
+		// E. Reconnection Logic: If we reach here, c.ctx was cancelled.
+		// We need to re-establish connection and start the cycle over.
+		utils.WARN("[RPC_Client] Client context cancelled ... Restarting client routines")
+
+		// First, we need to close existing old connection and try to create a new one
+		_ = c.internalClose()
+		time.Sleep(backoff)
+		backoff = time.Second
+		goto mainloop
+	}
+}
+
 func (c *gRPC_Client) Run(ctx context.Context) {
 	// Starts the main goroutine for connection, authentication, session registration and finally
 	// file synchronization. If the connection is lost then a reconnection will happen
 	// with a backoff time.
-	go func() {
-		backoff := time.Second // Initialize the backoff time to 1 second
-		heartbeat_interval := time.Duration(c.Config.Network.HeartbeatInterval) * time.Second
+	go c.internalRun()
 
-		// First Create a gRPC client with the connection and the context
-		if err := c.CreateRpcClient(); err != nil {
-			utils.ERROR("[RPC_Client] gRPC Client creation failed: ", err)
-			c.cancel() // Cancel the client context
-			return
-		}
-
-		// Check for server generic health
-		// if err := c.ServerHealthCheck(""); err != nil {
-		// 	utils.ERROR("[RPC_Client] General server status: ", err)
-		// 	return err
-		// }
-
-		// Infinite loop until the client context has not cancelled
-		for {
-			// Step 1: Attempt connection to the gRPC server
-
-			// Step 2: Authentication of the current client
-			if err := c.Authenticate(); err != nil {
-				time.Sleep(backoff)
-				continue
-			}
-
-			// Step 3: Register the current client to a new session
-			if err := c.RegisterSession(); err != nil {
-				time.Sleep(backoff)
-				continue
-			}
-
-			// Start the heartbeat routine and the filesynch service
-			go c.heartbeatRoutine(heartbeat_interval)
-			go c.syncRoutine(c.ctx)
-
-			// Block until the context is not closed. When it closes it
-			// means that the connection has been lost and must retry
-			<-c.ctx.Done()
-			return
-		}
-	}()
-
-	// The input context is the overall easy exit tag
-	// for the entire application, not just the context
-	// for the server gRPC connection.
-	for range ctx.Done() {
-		utils.INFO("[RPC_Client] gRPC Client cancelled: ", ctx.Err())
+	// The input context is the overall easy exit tag for the entire application, not
+	// just the context for the server gRPC connection.
+	c.wg.Go(func() {
+		<-ctx.Done()
+		utils.INFO("[RPC_Client] Global gRPC Client cancelled: ", ctx.Err())
+		c.stop_ch <- *new(struct{})
 		c.cancel() // Cancel the current connection context
-		return
-	}
+	})
 }

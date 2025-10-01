@@ -22,6 +22,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	Session_Hello_FullMethodName     = "/session.Session/Hello"
 	Session_Heartbeat_FullMethodName = "/session.Session/Heartbeat"
+	Session_Services_FullMethodName  = "/session.Session/Services"
 )
 
 // SessionClient is the client API for Session service.
@@ -30,6 +31,7 @@ const (
 type SessionClient interface {
 	Hello(ctx context.Context, in *ClientHello, opts ...grpc.CallOption) (*HelloResponse, error)
 	Heartbeat(ctx context.Context, in *HeartbeatMsg, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	Services(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ServicesResponse, error)
 }
 
 type sessionClient struct {
@@ -60,12 +62,23 @@ func (c *sessionClient) Heartbeat(ctx context.Context, in *HeartbeatMsg, opts ..
 	return out, nil
 }
 
+func (c *sessionClient) Services(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ServicesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ServicesResponse)
+	err := c.cc.Invoke(ctx, Session_Services_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SessionServer is the server API for Session service.
 // All implementations must embed UnimplementedSessionServer
 // for forward compatibility.
 type SessionServer interface {
 	Hello(context.Context, *ClientHello) (*HelloResponse, error)
 	Heartbeat(context.Context, *HeartbeatMsg) (*emptypb.Empty, error)
+	Services(context.Context, *emptypb.Empty) (*ServicesResponse, error)
 	mustEmbedUnimplementedSessionServer()
 }
 
@@ -81,6 +94,9 @@ func (UnimplementedSessionServer) Hello(context.Context, *ClientHello) (*HelloRe
 }
 func (UnimplementedSessionServer) Heartbeat(context.Context, *HeartbeatMsg) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Heartbeat not implemented")
+}
+func (UnimplementedSessionServer) Services(context.Context, *emptypb.Empty) (*ServicesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Services not implemented")
 }
 func (UnimplementedSessionServer) mustEmbedUnimplementedSessionServer() {}
 func (UnimplementedSessionServer) testEmbeddedByValue()                 {}
@@ -139,6 +155,24 @@ func _Session_Heartbeat_Handler(srv interface{}, ctx context.Context, dec func(i
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Session_Services_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SessionServer).Services(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Session_Services_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SessionServer).Services(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Session_ServiceDesc is the grpc.ServiceDesc for Session service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -153,6 +187,10 @@ var Session_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "Heartbeat",
 			Handler:    _Session_Heartbeat_Handler,
+		},
+		{
+			MethodName: "Services",
+			Handler:    _Session_Services_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

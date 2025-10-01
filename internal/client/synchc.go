@@ -40,7 +40,7 @@ func Run(conf_file_path string) {
 	// Creates the gRPC client for communicating with the server
 	client := notification.NewClient(client_conf, ch)
 	defer client.Close()
-	client.Run(ctx)
+	go client.Run(ctx)
 
 	// Create a channel to catch OS signals (CTRL+C)
 	sigs := make(chan os.Signal, 1)

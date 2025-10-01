@@ -35,7 +35,18 @@ message HeartbeatMsg {
     int64  timestamp = 2; // The timestamp
 }
 
+// Sent by the client to requests the name of all services
+// registered to the server.
+message ServicesResponse {
+    message Service {
+        string name     = 1; // The name of the service
+        bool   required = 2; // If the service is required to work or not
+    }
+    repeated Service services = 1; // A list with all services
+}
+
 service Session {
     rpc Hello(ClientHello) returns (HelloResponse);
     rpc Heartbeat(HeartbeatMsg) returns (google.protobuf.Empty);
+    rpc Services(google.protobuf.Empty) returns (ServicesResponse);
 }

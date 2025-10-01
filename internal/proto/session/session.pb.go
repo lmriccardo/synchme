@@ -253,6 +253,104 @@ func (x *HeartbeatMsg) GetTimestamp() int64 {
 	return 0
 }
 
+// Sent by the client to requests the name of all services
+// registered to the server.
+type ServicesResponse struct {
+	state         protoimpl.MessageState      `protogen:"open.v1"`
+	Services      []*ServicesResponse_Service `protobuf:"bytes,1,rep,name=services,proto3" json:"services,omitempty"` // A list with all services
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ServicesResponse) Reset() {
+	*x = ServicesResponse{}
+	mi := &file_session_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ServicesResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ServicesResponse) ProtoMessage() {}
+
+func (x *ServicesResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_session_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ServicesResponse.ProtoReflect.Descriptor instead.
+func (*ServicesResponse) Descriptor() ([]byte, []int) {
+	return file_session_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *ServicesResponse) GetServices() []*ServicesResponse_Service {
+	if x != nil {
+		return x.Services
+	}
+	return nil
+}
+
+type ServicesResponse_Service struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Name          string                 `protobuf:"bytes,1,opt,name=name,proto3" json:"name,omitempty"`          // The name of the service
+	Required      bool                   `protobuf:"varint,2,opt,name=required,proto3" json:"required,omitempty"` // If the service is required to work or not
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ServicesResponse_Service) Reset() {
+	*x = ServicesResponse_Service{}
+	mi := &file_session_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ServicesResponse_Service) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ServicesResponse_Service) ProtoMessage() {}
+
+func (x *ServicesResponse_Service) ProtoReflect() protoreflect.Message {
+	mi := &file_session_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ServicesResponse_Service.ProtoReflect.Descriptor instead.
+func (*ServicesResponse_Service) Descriptor() ([]byte, []int) {
+	return file_session_proto_rawDescGZIP(), []int{3, 0}
+}
+
+func (x *ServicesResponse_Service) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *ServicesResponse_Service) GetRequired() bool {
+	if x != nil {
+		return x.Required
+	}
+	return false
+}
+
 var File_session_proto protoreflect.FileDescriptor
 
 const file_session_proto_rawDesc = "" +
@@ -272,10 +370,16 @@ const file_session_proto_rawDesc = "" +
 	"\aFAILURE\x10\x01\"I\n" +
 	"\fHeartbeatMsg\x12\x1b\n" +
 	"\tclient_id\x18\x01 \x01(\tR\bclientId\x12\x1c\n" +
-	"\ttimestamp\x18\x02 \x01(\x03R\ttimestamp2|\n" +
+	"\ttimestamp\x18\x02 \x01(\x03R\ttimestamp\"\x8c\x01\n" +
+	"\x10ServicesResponse\x12=\n" +
+	"\bservices\x18\x01 \x03(\v2!.session.ServicesResponse.ServiceR\bservices\x1a9\n" +
+	"\aService\x12\x12\n" +
+	"\x04name\x18\x01 \x01(\tR\x04name\x12\x1a\n" +
+	"\brequired\x18\x02 \x01(\bR\brequired2\xbb\x01\n" +
 	"\aSession\x125\n" +
 	"\x05Hello\x12\x14.session.ClientHello\x1a\x16.session.HelloResponse\x12:\n" +
-	"\tHeartbeat\x12\x15.session.HeartbeatMsg\x1a\x16.google.protobuf.EmptyB3Z1github.com/synchme/internal/proto/session;sessionb\x06proto3"
+	"\tHeartbeat\x12\x15.session.HeartbeatMsg\x1a\x16.google.protobuf.Empty\x12=\n" +
+	"\bServices\x12\x16.google.protobuf.Empty\x1a\x19.session.ServicesResponseB3Z1github.com/synchme/internal/proto/session;sessionb\x06proto3"
 
 var (
 	file_session_proto_rawDescOnce sync.Once
@@ -290,25 +394,30 @@ func file_session_proto_rawDescGZIP() []byte {
 }
 
 var file_session_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_session_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_session_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_session_proto_goTypes = []any{
-	(HelloResponse_Status)(0), // 0: session.HelloResponse.Status
-	(*ClientHello)(nil),       // 1: session.ClientHello
-	(*HelloResponse)(nil),     // 2: session.HelloResponse
-	(*HeartbeatMsg)(nil),      // 3: session.HeartbeatMsg
-	(*emptypb.Empty)(nil),     // 4: google.protobuf.Empty
+	(HelloResponse_Status)(0),        // 0: session.HelloResponse.Status
+	(*ClientHello)(nil),              // 1: session.ClientHello
+	(*HelloResponse)(nil),            // 2: session.HelloResponse
+	(*HeartbeatMsg)(nil),             // 3: session.HeartbeatMsg
+	(*ServicesResponse)(nil),         // 4: session.ServicesResponse
+	(*ServicesResponse_Service)(nil), // 5: session.ServicesResponse.Service
+	(*emptypb.Empty)(nil),            // 6: google.protobuf.Empty
 }
 var file_session_proto_depIdxs = []int32{
 	0, // 0: session.HelloResponse.status:type_name -> session.HelloResponse.Status
-	1, // 1: session.Session.Hello:input_type -> session.ClientHello
-	3, // 2: session.Session.Heartbeat:input_type -> session.HeartbeatMsg
-	2, // 3: session.Session.Hello:output_type -> session.HelloResponse
-	4, // 4: session.Session.Heartbeat:output_type -> google.protobuf.Empty
-	3, // [3:5] is the sub-list for method output_type
-	1, // [1:3] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	5, // 1: session.ServicesResponse.services:type_name -> session.ServicesResponse.Service
+	1, // 2: session.Session.Hello:input_type -> session.ClientHello
+	3, // 3: session.Session.Heartbeat:input_type -> session.HeartbeatMsg
+	6, // 4: session.Session.Services:input_type -> google.protobuf.Empty
+	2, // 5: session.Session.Hello:output_type -> session.HelloResponse
+	6, // 6: session.Session.Heartbeat:output_type -> google.protobuf.Empty
+	4, // 7: session.Session.Services:output_type -> session.ServicesResponse
+	5, // [5:8] is the sub-list for method output_type
+	2, // [2:5] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_session_proto_init() }
@@ -322,7 +431,7 @@ func file_session_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_session_proto_rawDesc), len(file_session_proto_rawDesc)),
 			NumEnums:      1,
-			NumMessages:   3,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
