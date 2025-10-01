@@ -521,8 +521,8 @@ const file_filesync_proto_rawDesc = "" +
 	"\aversion\x18\x03 \x01(\x03R\aversion\x12\x1f\n" +
 	"\vfrom_client\x18\x04 \x01(\tR\n" +
 	"fromClient\x12\x1b\n" +
-	"\tto_client\x18\x05 \x01(\tR\btoClient2L\n" +
-	"\x10FileSynchService\x128\n" +
+	"\tto_client\x18\x05 \x01(\tR\btoClient2E\n" +
+	"\tFileSynch\x128\n" +
 	"\x04Sync\x12\x15.filesync.SyncMessage\x1a\x15.filesync.SyncMessage(\x010\x01B5Z3github.com/synchme/internal/proto/filesync;filesyncb\x06proto3"
 
 var (
@@ -554,8 +554,8 @@ var file_filesync_proto_depIdxs = []int32{
 	1, // 4: filesync.FileUpdate.meta:type_name -> filesync.MessageMeta
 	1, // 5: filesync.FileRename.meta:type_name -> filesync.MessageMeta
 	1, // 6: filesync.FileRemove.meta:type_name -> filesync.MessageMeta
-	0, // 7: filesync.FileSynchService.Sync:input_type -> filesync.SyncMessage
-	0, // 8: filesync.FileSynchService.Sync:output_type -> filesync.SyncMessage
+	0, // 7: filesync.FileSynch.Sync:input_type -> filesync.SyncMessage
+	0, // 8: filesync.FileSynch.Sync:output_type -> filesync.SyncMessage
 	8, // [8:9] is the sub-list for method output_type
 	7, // [7:8] is the sub-list for method input_type
 	7, // [7:7] is the sub-list for extension type_name

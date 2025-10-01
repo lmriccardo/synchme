@@ -7,7 +7,7 @@ option go_package = "github.com/synchme/internal/proto/filesync;filesync";
 /**
  * Core Service for File Synchronization
 */
-service FileSynchService {
+service FileSynch {
 
     // Client pushes notification to the server, the server relays to interested clients
     rpc Sync (stream SyncMessage) returns (stream SyncMessage);

@@ -38,11 +38,7 @@ func Run(conf_file_path string) {
 	watcher.Run(ctx)
 
 	// Creates the gRPC client for communicating with the server
-	client, err := notification.NewClient(client_conf, ch)
-	if err != nil {
-		utils.FATAL("Fatal Error: ", err)
-	}
-
+	client := notification.NewClient(client_conf, ch)
 	defer client.Close()
 	client.Run(ctx)
 

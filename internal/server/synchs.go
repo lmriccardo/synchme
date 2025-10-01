@@ -1,20 +1,26 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
 	"net"
 
 	"github.com/lmriccardo/synchme/internal/proto/filesync"
+	"github.com/lmriccardo/synchme/internal/proto/healthcheck"
+	"github.com/lmriccardo/synchme/internal/proto/session"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/types/known/emptypb"
 )
 
 type server struct {
-	filesync.UnimplementedFileSynchServiceServer // embed for forward compatibility
+	filesync.UnimplementedFileSynchServer // embed for forward compatibility
+	session.UnimplementedSessionServer    //
+	healthcheck.UnimplementedHealthServer
 }
 
-func (s *server) Sync(stream filesync.FileSynchService_SyncServer) error {
+func (s *server) Sync(stream filesync.FileSynch_SyncServer) error {
 	// get the context
 	ctx := stream.Context()
 
@@ -37,6 +43,14 @@ func (s *server) Sync(stream filesync.FileSynchService_SyncServer) error {
 	}
 }
 
+func (s *server) Check(ctx context.Context, req *healthcheck.HealthCheckRequest) (*healthcheck.HealthCheckResponse, error) {
+	return &healthcheck.HealthCheckResponse{Status: healthcheck.HealthCheckResponse_SERVING}, nil
+}
+
+func (s *server) Heartbeat(ctx context.Context, req *session.HeartbeatMsg) (*emptypb.Empty, error) {
+	return &emptypb.Empty{}, nil
+}
+
 func Run() {
 	fmt.Println("Starting SynchMe Server ...")
 
@@ -50,7 +64,10 @@ func Run() {
 	}
 
 	grpc_server := grpc.NewServer()
-	filesync.RegisterFileSynchServiceServer(grpc_server, &server{})
+	filesync.RegisterFileSynchServer(grpc_server, &server{})
+	session.RegisterSessionServer(grpc_server, &server{})
+	healthcheck.RegisterHealthServer(grpc_server, &server{})
+
 	log.Println("gRPC server listening on localhost:50051")
 
 	if err := grpc_server.Serve(lis); err != nil {
