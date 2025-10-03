@@ -17,3 +17,4 @@ filters             = []    # FS Operations to be filtered (WRITE, CREATE, REMOV
 [Network]
 relay_host = "127.0.0.1" # The IP address or the hostname of the relay server
 relay_port = 50051       # The IP port of the relay server
+heartbeat_interval = 1   # [seconds] The time interval between two heartbeats

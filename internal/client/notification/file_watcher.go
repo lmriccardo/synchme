@@ -11,23 +11,24 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/lmriccardo/synchme/internal/client/config"
-	"github.com/lmriccardo/synchme/internal/client/utils"
+	"github.com/lmriccardo/synchme/internal/utils"
 	"github.com/sergi/go-diff/diffmatchpatch"
 )
 
 const THRESHOLD = 50 * time.Millisecond
 
 type FileWatcher struct {
-	Channel    *WatcherChannel     // Write-only channel for fs events
-	InternalCh chan fsnotify.Event // A channel with all events
-	Watcher    *fsnotify.Watcher   // The watcher for notifications on events
-	FileList   [](string)          // List of files watched by the Watcher
-	FileCache  *utils.Cache        // Maps the file with its content
-	Config     *config.ClientConf  // Client configuration structure
-	LastEvent  NotificationEvent   // Last produced event
-	OpMask     fsnotify.Op         // Event Mask
-	Flag       atomic.Bool         // True if has produced, False otherwise
-	mu         sync.RWMutex        // Sending mutex
+	Channel    *WatcherChannel                // Write-only channel for fs events
+	InternalCh chan fsnotify.Event            // A channel with all events
+	Watcher    *fsnotify.Watcher              // The watcher for notifications on events
+	FileList   [](string)                     // List of files watched by the Watcher
+	FileCache  *utils.Cache                   // Maps the file with its content
+	Config     *config.ClientConf             // Client configuration structure
+	LastEvent  NotificationEvent              // Last produced event
+	OpMask     fsnotify.Op                    // Event Mask
+	Flag       atomic.Bool                    // True if has produced, False otherwise
+	mu         sync.RWMutex                   // Sending mutex
+	dm         *diffmatchpatch.DiffMatchPatch // Used to compute patches and diffs
 }
 
 // CreateProducer creates a new EventProducer and returns the producer and its event channel.
@@ -47,6 +48,7 @@ func NewFileWatcher(ch *WatcherChannel, conf *config.ClientConf) (*FileWatcher, 
 		FileCache:  cache,
 		Config:     conf,
 		LastEvent:  NotificationEvent{},
+		dm:         diffmatchpatch.New(),
 	}
 
 	fwatcher.Flag.Store(false) // Store false as initial value
@@ -234,6 +236,12 @@ func (fw *FileWatcher) handleCreateEvent(event *NotificationEvent) bool {
 		// If the difference in time is grater then the threshold returns
 		diff := event.Timestamp.Sub(fw.LastEvent.Timestamp)
 		if diff > THRESHOLD || !fw.LastEvent.Op.Has(Remove|Rename) {
+			// Here we should take the file content and put it in the
+			// patches attribute of the notification event
+			if content, ok := fw.FileCache.GetWithDefault(event.Path, ""); ok {
+				event.Patches = fw.dm.PatchMake("", content)
+			}
+
 			return false
 		}
 
@@ -309,13 +317,10 @@ func (fw *FileWatcher) produceEvent(event fsnotify.Event, prev, curr string, tim
 	was_rename_or_remove := false
 	create_result := false
 
-	// Create the diffmatchpath object
-	dm := diffmatchpatch.New()
-
 	// Check the type of the event and perform releated operations
 	switch {
 	case event.Op.Has(fsnotify.Write):
-		patches := dm.PatchMake(prev, curr)
+		patches := fw.dm.PatchMake(prev, curr)
 
 		if len(patches) == 0 {
 			break
@@ -464,6 +469,7 @@ func (fw *FileWatcher) timeoutSenderRoutine() {
 	for {
 		if !fw.Flag.Load() {
 			time.Sleep(100 * time.Millisecond)
+			continue
 		}
 
 		fw.mu.RLock()

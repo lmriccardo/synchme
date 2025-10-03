@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/lmriccardo/synchme/internal/client/notification"
-	"github.com/lmriccardo/synchme/internal/client/utils"
+	"github.com/lmriccardo/synchme/internal/utils"
 	"github.com/sergi/go-diff/diffmatchpatch"
 )
 

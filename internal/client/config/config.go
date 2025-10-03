@@ -8,7 +8,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/go-playground/validator/v10"
-	"github.com/lmriccardo/synchme/internal/client/utils"
+	"github.com/lmriccardo/synchme/internal/utils"
 )
 
 // Configuration-releated settings
@@ -41,8 +41,9 @@ type FS_Notification struct {
 // NetworkInterface: Sender network interface
 // SourcePort      : Client source port
 type Network struct {
-	ServerHost string `toml:"relay_host" validate:"required,ip_or_hostname"`
-	ServerPort int    `toml:"relay_port" validate:"required,min=1,max=65535"`
+	ServerHost        string `toml:"relay_host" validate:"required,ip_or_hostname"`
+	ServerPort        int    `toml:"relay_port" validate:"required,min=1,max=65535"`
+	HeartbeatInterval int    `toml:"heartbeat_interval" validate:"required,min=1,max=65535"`
 }
 
 // Root struct representing the whole TOML

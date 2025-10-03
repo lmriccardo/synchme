@@ -19,31 +19,31 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	FileSynchService_Sync_FullMethodName = "/filesync.FileSynchService/Sync"
+	FileSynch_Sync_FullMethodName = "/filesync.FileSynch/Sync"
 )
 
-// FileSynchServiceClient is the client API for FileSynchService service.
+// FileSynchClient is the client API for FileSynch service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
 // *
 // Core Service for File Synchronization
-type FileSynchServiceClient interface {
+type FileSynchClient interface {
 	// Client pushes notification to the server, the server relays to interested clients
 	Sync(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[SyncMessage, SyncMessage], error)
 }
 
-type fileSynchServiceClient struct {
+type fileSynchClient struct {
 	cc grpc.ClientConnInterface
 }
 
-func NewFileSynchServiceClient(cc grpc.ClientConnInterface) FileSynchServiceClient {
-	return &fileSynchServiceClient{cc}
+func NewFileSynchClient(cc grpc.ClientConnInterface) FileSynchClient {
+	return &fileSynchClient{cc}
 }
 
-func (c *fileSynchServiceClient) Sync(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[SyncMessage, SyncMessage], error) {
+func (c *fileSynchClient) Sync(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[SyncMessage, SyncMessage], error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	stream, err := c.cc.NewStream(ctx, &FileSynchService_ServiceDesc.Streams[0], FileSynchService_Sync_FullMethodName, cOpts...)
+	stream, err := c.cc.NewStream(ctx, &FileSynch_ServiceDesc.Streams[0], FileSynch_Sync_FullMethodName, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -52,69 +52,69 @@ func (c *fileSynchServiceClient) Sync(ctx context.Context, opts ...grpc.CallOpti
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type FileSynchService_SyncClient = grpc.BidiStreamingClient[SyncMessage, SyncMessage]
+type FileSynch_SyncClient = grpc.BidiStreamingClient[SyncMessage, SyncMessage]
 
-// FileSynchServiceServer is the server API for FileSynchService service.
-// All implementations must embed UnimplementedFileSynchServiceServer
+// FileSynchServer is the server API for FileSynch service.
+// All implementations must embed UnimplementedFileSynchServer
 // for forward compatibility.
 //
 // *
 // Core Service for File Synchronization
-type FileSynchServiceServer interface {
+type FileSynchServer interface {
 	// Client pushes notification to the server, the server relays to interested clients
 	Sync(grpc.BidiStreamingServer[SyncMessage, SyncMessage]) error
-	mustEmbedUnimplementedFileSynchServiceServer()
+	mustEmbedUnimplementedFileSynchServer()
 }
 
-// UnimplementedFileSynchServiceServer must be embedded to have
+// UnimplementedFileSynchServer must be embedded to have
 // forward compatible implementations.
 //
 // NOTE: this should be embedded by value instead of pointer to avoid a nil
 // pointer dereference when methods are called.
-type UnimplementedFileSynchServiceServer struct{}
+type UnimplementedFileSynchServer struct{}
 
-func (UnimplementedFileSynchServiceServer) Sync(grpc.BidiStreamingServer[SyncMessage, SyncMessage]) error {
+func (UnimplementedFileSynchServer) Sync(grpc.BidiStreamingServer[SyncMessage, SyncMessage]) error {
 	return status.Errorf(codes.Unimplemented, "method Sync not implemented")
 }
-func (UnimplementedFileSynchServiceServer) mustEmbedUnimplementedFileSynchServiceServer() {}
-func (UnimplementedFileSynchServiceServer) testEmbeddedByValue()                          {}
+func (UnimplementedFileSynchServer) mustEmbedUnimplementedFileSynchServer() {}
+func (UnimplementedFileSynchServer) testEmbeddedByValue()                   {}
 
-// UnsafeFileSynchServiceServer may be embedded to opt out of forward compatibility for this service.
-// Use of this interface is not recommended, as added methods to FileSynchServiceServer will
+// UnsafeFileSynchServer may be embedded to opt out of forward compatibility for this service.
+// Use of this interface is not recommended, as added methods to FileSynchServer will
 // result in compilation errors.
-type UnsafeFileSynchServiceServer interface {
-	mustEmbedUnimplementedFileSynchServiceServer()
+type UnsafeFileSynchServer interface {
+	mustEmbedUnimplementedFileSynchServer()
 }
 
-func RegisterFileSynchServiceServer(s grpc.ServiceRegistrar, srv FileSynchServiceServer) {
-	// If the following call pancis, it indicates UnimplementedFileSynchServiceServer was
+func RegisterFileSynchServer(s grpc.ServiceRegistrar, srv FileSynchServer) {
+	// If the following call pancis, it indicates UnimplementedFileSynchServer was
 	// embedded by pointer and is nil.  This will cause panics if an
 	// unimplemented method is ever invoked, so we test this at initialization
 	// time to prevent it from happening at runtime later due to I/O.
 	if t, ok := srv.(interface{ testEmbeddedByValue() }); ok {
 		t.testEmbeddedByValue()
 	}
-	s.RegisterService(&FileSynchService_ServiceDesc, srv)
+	s.RegisterService(&FileSynch_ServiceDesc, srv)
 }
 
-func _FileSynchService_Sync_Handler(srv interface{}, stream grpc.ServerStream) error {
-	return srv.(FileSynchServiceServer).Sync(&grpc.GenericServerStream[SyncMessage, SyncMessage]{ServerStream: stream})
+func _FileSynch_Sync_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(FileSynchServer).Sync(&grpc.GenericServerStream[SyncMessage, SyncMessage]{ServerStream: stream})
 }
 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
-type FileSynchService_SyncServer = grpc.BidiStreamingServer[SyncMessage, SyncMessage]
+type FileSynch_SyncServer = grpc.BidiStreamingServer[SyncMessage, SyncMessage]
 
-// FileSynchService_ServiceDesc is the grpc.ServiceDesc for FileSynchService service.
+// FileSynch_ServiceDesc is the grpc.ServiceDesc for FileSynch service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
-var FileSynchService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "filesync.FileSynchService",
-	HandlerType: (*FileSynchServiceServer)(nil),
+var FileSynch_ServiceDesc = grpc.ServiceDesc{
+	ServiceName: "filesync.FileSynch",
+	HandlerType: (*FileSynchServer)(nil),
 	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "Sync",
-			Handler:       _FileSynchService_Sync_Handler,
+			Handler:       _FileSynch_Sync_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},
