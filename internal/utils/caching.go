@@ -29,16 +29,16 @@ func (ce *CacheEntry) String() string {
 
 // Memcache is an in-memory concurrent cache
 type Cache struct {
-	items  map[string]*CacheEntry // A mapping of keys to cache entries
+	Items  map[string]*CacheEntry // A mapping of keys to cache entries
+	MaxTTL time.Duration          // Maximum time to live
 	mu     sync.RWMutex
-	maxTTL time.Duration // Maximum time to live
 }
 
 // NewCache returns a new Cache object
 func NewCache(max_ttl time.Duration) *Cache {
 	return &Cache{
-		items:  make(map[string]*CacheEntry),
-		maxTTL: max_ttl,
+		Items:  make(map[string]*CacheEntry),
+		MaxTTL: max_ttl,
 	}
 }
 
@@ -58,15 +58,15 @@ func (c *Cache) Set(key string, value any, ttl time.Duration, start bool) {
 	defer c.mu.Unlock() // When the function exits release the lock
 
 	var exp time.Time
-	ttl = min(ttl, c.maxTTL)
+	ttl = min(ttl, c.MaxTTL)
 	if ttl > 0 && start {
 		exp = time.Now().Add(ttl)
 	}
 
 	// Adds the item into the cache
-	c.items[key] = &CacheEntry{key, value, exp, start, ttl, 0}
+	c.Items[key] = &CacheEntry{key, value, exp, start, ttl, 0}
 
-	INFO("New Cache Entry: ", c.items[key])
+	INFO("New Cache Entry: ", c.Items[key])
 }
 
 // Start starts the expiration process of the cache element
@@ -75,20 +75,20 @@ func (c *Cache) Start(key string) {
 	defer c.mu.Unlock()
 
 	// If already started then do nothing and returns
-	if item, exists := c.items[key]; !exists || item.Start {
+	if item, exists := c.Items[key]; !exists || item.Start {
 		ERROR("Element ", key, " does not exists in the cache!!")
 		return
 	}
 
-	ttl := c.items[key].TimeToLive
-	c.items[key].Start = true
-	c.items[key].Expiration = time.Now().Add(ttl)
+	ttl := c.Items[key].TimeToLive
+	c.Items[key].Start = true
+	c.Items[key].Expiration = time.Now().Add(ttl)
 }
 
 // UnsafeHasExpired returns True if the element has expired, false otherwise
 // It is unsafe since no locking mechanisms prevents race conditions
 func (c *Cache) UnsafeHasExpired(key string) (bool, error) {
-	item, exists := c.items[key]
+	item, exists := c.Items[key]
 	if !exists {
 		// Cache miss
 		return true, errors.New("cache miss for key: " + key)
@@ -113,27 +113,42 @@ func (c *Cache) HasExpired(key string) (bool, error) {
 	return c.UnsafeHasExpired(key)
 }
 
+func (c *Cache) GetEntry(key string) *CacheEntry {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.UnsafeGetEntry(key)
+}
+
 // UnsafeGetEntry non-Concurrent safe function which returns the
 // entry in the cache correspondin to the input key
 func (c *Cache) UnsafeGetEntry(key string) *CacheEntry {
+	item := c.UnsafeGetWithNoHit(key)
+
+	// The hit count and the ttl extension depends on the start value
+	if item != nil && item.Start {
+		item.HitCount++
+
+		// Increase its expiration date base on the hit count
+		extension := ComputeNewExpiration(item, c.MaxTTL)
+		item.Expiration = time.Now().Add(extension)
+	}
+
+	return item
+}
+
+func (c *Cache) GetWithNoHit(key string) *CacheEntry {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.UnsafeGetWithNoHit(key)
+}
+
+func (c *Cache) UnsafeGetWithNoHit(key string) *CacheEntry {
 	// For cache miss, i.e., expiration or never existed return nil
 	if result, _ := c.UnsafeHasExpired(key); result {
 		return nil
 	}
 
-	// Before returning the value increase the hit count
-	item := c.items[key]
-
-	// The hit count and the ttl extension depends on the start value
-	if item.Start {
-		item.HitCount++
-
-		// Increase its expiration date base on the hit count
-		extension := ComputeNewExpiration(item, c.maxTTL)
-		item.Expiration = time.Now().Add(extension)
-	}
-
-	return item
+	return c.Items[key]
 }
 
 func (c *Cache) GetWithDefault(key string, value any) (any, bool) {
@@ -173,12 +188,14 @@ func (c *Cache) Remove(key string) {
 
 // Remove removes an item from the cache if it exists
 func (c *Cache) UnsafeRemove(key string) {
-	delete(c.items, key)
+	delete(c.Items, key)
 }
 
 func (c *Cache) EraseCache() {
-	for key := range c.items {
-		delete(c.items, key)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for key := range c.Items {
+		c.UnsafeRemove(key)
 	}
 }
 
@@ -187,10 +204,10 @@ func (c *Cache) ExpirationRoutine() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	for key := range c.items {
+	for key := range c.Items {
 		if result, _ := c.UnsafeHasExpired(key); result {
 			INFO("Item ", key, " has expired")
-			c.Remove(key)
+			c.UnsafeRemove(key)
 		}
 	}
 }
