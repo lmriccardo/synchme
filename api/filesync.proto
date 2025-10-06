@@ -17,11 +17,12 @@ service FileSynch {
 
 // A generic wrapper for messages in the stream
 message SyncMessage {
+    MessageMeta meta = 1; // Message meta data (common data)
     oneof msg {
-        FileUpdate  update = 1;
-        FileRename  rename = 2;
-        FileRemove  remove = 3;
-        SyncAck     ack    = 4;
+        FileUpdate  update = 2;
+        FileRename  rename = 3;
+        FileRemove  remove = 4;
+        SyncAck     ack    = 5;
     }
 }
 
@@ -30,37 +31,39 @@ message MessageMeta {
     string origin_client = 1; // The client ID originating the sync
     int64  version       = 2; // Monotonically increasing version
     int64  timestamp     = 3; // The timestamp (nanoseconds) of the update
+    int64  identifier    = 4; // A message identifier (essentially a unique counter)
 }
 
 // Represents a file update (new or modified file)
 message FileUpdate {
-    MessageMeta meta         = 1; // Message meta data (common data)
-    string      path         = 2; // The file/folder path subject to this update
-    bytes       data         = 3; // Raw data (diffs) or just chunks (if the message is too large)
-    bool        is_chunk     = 4; // If the data contains a chunk
-    int32       chunk_index  = 5; // The index of the current chunk
-    int32       total_chunks = 6; // Total number of chunks
-    bool        is_folder    = 7; // If the current path is a folder or a file
+    string      path         = 1; // The file/folder path subject to this update
+    bytes       data         = 2; // Raw data (diffs) or just chunks (if the message is too large)
+    bool        is_chunk     = 3; // If the data contains a chunk
+    int32       chunk_index  = 4; // The index of the current chunk
+    int32       total_chunks = 5; // Total number of chunks
+    bool        is_folder    = 6; // If the current path is a folder or a file
+
+    enum UpdateType {
+        CREATE = 0;
+        WRITE  = 1;
+    }
+
+    UpdateType type = 7; // The type of the update (CREATE or WRITE)
 }
 
 // Represents a move/rename operations for a file or a folder
 message FileRename {
-    MessageMeta meta     = 1; // Message meta data (common data)
-    string      path     = 2; // The file/folder path subject to this update
-    string      old_path = 3; // The old path of the current file/folder
+    string      path     = 1; // The file/folder path subject to this update
+    string      old_path = 2; // The old path of the current file/folder
 }
 
 // Represents a delete operation on file or a folder
 message FileRemove {
-    MessageMeta meta = 1; // Message meta data (common data)
-    string      path = 2; // The file/folder path subject to this update
+    string path = 1; // The file/folder path subject to this update
 }
 
 // Acknowledgment of the received update
 message SyncAck {
-    string path        = 1; // The path relative to the ackd update
-    int64  timestamp   = 2; // The timestamp of the acknowledgment
-    int64  version     = 3; // The version of the file
-    string from_client = 4; // The client sending the ack
-    string to_client   = 5; // The origin client that sent the update
+    string path      = 1; // The path relative to the ackd update
+    string to_client = 2; // The origin client that sent the update
 }

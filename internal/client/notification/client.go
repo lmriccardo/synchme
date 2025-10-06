@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -27,6 +28,8 @@ import (
 const CHUNK_SIZE = 64 * 1024 // 65536
 
 // --- gRPC Client Implementation ---
+
+var MESSAGE_COUNTER int64 = 0
 
 type gRPC_Client struct {
 	Config         *config.ClientConf       // The client configuration
@@ -183,50 +186,13 @@ func (c *gRPC_Client) healthRoutine() {
 	}
 }
 
-func createUpdateMessage(event *NotificationEvent, meta *filesync.MessageMeta) []*filesync.SyncMessage {
-	dw := diffmatchpatch.New()
-	patches_str := dw.PatchToText(event.Patches)
-	chunks := []*filesync.SyncMessage{} // Initialize the chunks
-
-	// Create the slice of chunks from the text containing patches
-	data_chunks := utils.ChunkData([]byte(patches_str), CHUNK_SIZE)
-	for chunk_idx, chunk_data := range data_chunks {
-		chunks = append(chunks, &filesync.SyncMessage{
-			Msg: &filesync.SyncMessage_Update{
-				Update: &filesync.FileUpdate{
-					Meta:        meta,
-					Path:        event.Path,
-					Data:        chunk_data,
-					IsChunk:     len(data_chunks) > 1,
-					ChunkIndex:  int32(chunk_idx),
-					TotalChunks: int32(len(data_chunks)),
-					IsFolder:    false,
-				},
-			},
-		})
-	}
-
-	return chunks
-}
-
-func createRenameMessage(event *NotificationEvent, meta *filesync.MessageMeta) *filesync.SyncMessage {
-	return &filesync.SyncMessage{Msg: &filesync.SyncMessage_Rename{
-		Rename: &filesync.FileRename{Meta: meta, Path: event.Path, OldPath: event.OldPath},
-	}}
-}
-
-func createRemoveMessage(event *NotificationEvent, meta *filesync.MessageMeta) *filesync.SyncMessage {
-	return &filesync.SyncMessage{Msg: &filesync.SyncMessage_Remove{
-		Remove: &filesync.FileRemove{Meta: meta, Path: event.Path},
-	}}
-}
-
 func (c *gRPC_Client) getMsgIterator(event *NotificationEvent) func() (*filesync.SyncMessage, bool) {
 	// First we need to create the metadata
 	meta := filesync.MessageMeta{
 		OriginClient: c.ClientID.String(),
 		Version:      1,
 		Timestamp:    time.Now().UnixMicro(),
+		Identifier:   MESSAGE_COUNTER,
 	}
 
 	messages := []*filesync.SyncMessage{}
@@ -235,13 +201,15 @@ func (c *gRPC_Client) getMsgIterator(event *NotificationEvent) func() (*filesync
 	switch {
 	case event.Op.Has(Write | Create):
 		messages = append(messages, createUpdateMessage(event, &meta)...)
+		MESSAGE_COUNTER--
 	case event.Op.Has(Move | Rename):
 		messages = append(messages, createRenameMessage(event, &meta))
 	case event.Op.Has(Remove):
 		messages = append(messages, createRemoveMessage(event, &meta))
 	}
 
-	message_idx := 0 // The message index for the iterator
+	MESSAGE_COUNTER++ // Increase the message counter
+	message_idx := 0  // The message index for the iterator
 
 	return func() (*filesync.SyncMessage, bool) {
 		if message_idx >= len(messages) {
@@ -279,6 +247,160 @@ func (c *gRPC_Client) processEvent(stream *SyncStream, event *NotificationEvent)
 	}
 }
 
+func (c *gRPC_Client) processReceivedMsg(msg *filesync.SyncMessage) *filesync.SyncMessage {
+	// Check the arrived message. If the origin client id is the same of the
+	// current id then we need to discard the message (if it is not a server
+	// acknowledgment message)
+	if msg.Meta.OriginClient == c.ClientID.String() {
+		return nil
+	}
+
+	// Check if an Acknowledgment message is arrived
+	if ack_msg, ok := msg.GetMsg().(*filesync.SyncMessage_Ack); ok {
+
+		// Returns if the target client of the ACK is a different one
+		if ack_msg.Ack.ToClient == c.ClientID.String() {
+			var origin_id string
+
+			if len(msg.Meta.OriginClient) == 0 {
+				origin_id = "SERVER"
+			} else {
+				origin_id = msg.Meta.OriginClient
+			}
+
+			utils.INFO("Received ACK from ", origin_id, " MsgID=", msg.Meta.Identifier)
+		}
+
+		return nil
+	}
+
+	var message_path string
+
+	// Otherwise, check if the message is Update, Remove or Rename
+	switch msg.GetMsg().(type) {
+	case *filesync.SyncMessage_Update:
+		update_msg := msg.GetUpdate()
+		message_path = update_msg.Path
+		utils.INFO("Received UPDATE from ", msg.Meta.OriginClient,
+			" MsgID=", msg.Meta.Identifier, " PATH=", update_msg.Path)
+
+		// If the operation was to write content into a file, we need first
+		// check that the file exists ... if it does not exists than there
+		// is an error and appropriate measures must be taken (for example
+		// to fetch the file from the server and then update its content ...
+		// or we shall re-fetch the entire list of watched paths since the client
+		// might be unsynchronized with the latest updates).
+		if !utils.Exist(message_path) && update_msg.Type == filesync.FileUpdate_WRITE {
+			utils.ERROR("[gRPC_Client] Path ", message_path, " does not exists!!!!")
+			return nil
+		}
+
+		// If the update is to create a file
+		if update_msg.Type == filesync.FileUpdate_CREATE {
+			if _, err := os.Create(message_path); err != nil {
+				utils.ERROR("[gRPC_Client] Error when creating ", message_path, ": ", err)
+				return nil
+			}
+
+			break
+		}
+
+		// Check if the file is open in another editing application. In this case
+		// there should be a configuration parameter that choose between overwriting
+		// the file or merge the incoming changes with the current one.
+		if utils.IsFileOpen(message_path) {
+			utils.WARN("[gRPC_Client] File ", message_path, " is currently open in an application")
+		}
+
+		// First we need to take the message data containing patches in string format
+		// and reconstruct the Patch type. If error, returns nil
+		dw := diffmatchpatch.New()
+		content := utils.ReadFileContent(message_path)
+		patches, err := dw.PatchFromText(string(update_msg.Data))
+		if err != nil {
+			utils.ERROR("[gRPC_Client] Unable to retrieves patches from message data")
+			return nil
+		}
+
+		// If it appens that some of the patches have not been applied to the current
+		// file content, then we need to leave the file as it is and raise an error
+		// otherwise, we can write the patched content into the file
+		if patched_content, oks := dw.PatchApply(patches, content); utils.ReduceWith(utils.And, oks, true) {
+			if err := os.WriteFile(message_path, []byte(patched_content), os.ModePerm); err != nil {
+				utils.ERROR("[gRPC_Client] Unable to write patched content into ", message_path, ": ", err)
+				return nil
+			}
+		} else {
+			not_oks := utils.Filter(utils.ApplyToSecond[int](utils.Not), utils.Enumerate(oks))
+			utils.ERROR("[gRPC_Client] Unable to apply some patches for ", message_path)
+			for idx := range not_oks {
+				fmt.Printf("[*] Patch Number: %v\n%v\n", idx+1, patches[idx])
+			}
+
+			return nil
+		}
+
+	case *filesync.SyncMessage_Remove:
+		remove_msg := msg.GetRemove()
+		message_path = remove_msg.Path
+		utils.INFO("Received REMOVE from ", msg.Meta.OriginClient,
+			" MsgID=", msg.Meta.Identifier, " PATH=", remove_msg.Path)
+
+		// If the file does not exist and the operation is Remove then the current
+		// client is in an unsynchronized state, since the file would have been
+		// existed up to this point if synchronized
+		if !utils.Exist(message_path) {
+			utils.ERROR("[gRPC_Client] The path ", message_path, " has already been removed ????")
+			return nil
+		}
+
+		// Call the remove function on the path specified in the message
+		if err := os.RemoveAll(message_path); err != nil {
+			utils.ERROR("[gRPC_Client] Error when clearing the ", message_path, " path: ", err)
+			return nil
+		}
+
+	case *filesync.SyncMessage_Rename:
+		rename_msg := msg.GetRename()
+		message_path = rename_msg.OldPath
+		utils.INFO("Received RENAME from ", msg.Meta.OriginClient,
+			" MsgID=", msg.Meta.Identifier, " PATH=", rename_msg.Path)
+
+		// If the file does not exist and the operation is Rename then the current
+		// client is in an unsynchronized state, since the file would have been
+		// existed up to this point if synchronized
+		if !utils.Exist(message_path) {
+			utils.ERROR("[gRPC_Client] The path ", message_path, " does not exists")
+			return nil
+		}
+
+		// The target path shall not exist in the current version of the client
+		// folder. It does not make any sense, since if a rename event has occurred
+		// this means that the origin client didn't have any file named as the
+		// target path, otherwise the operation would have been resulted in an error.
+		if utils.Exist(rename_msg.Path) {
+			utils.ERROR("[gRPC_Client] The target path ", rename_msg.Path, " already exists")
+			return nil
+		}
+
+		if err := os.Rename(message_path, rename_msg.Path); err != nil {
+			utils.ERROR("[gRPC_Client] Rename operation failed: ", err)
+			return nil
+		}
+	}
+
+	// For any received message which is not an ACK we need to send
+	// the acknowledgment message to that client
+	ack_meta := &filesync.MessageMeta{
+		Timestamp:    time.Now().Unix(),
+		OriginClient: c.ClientID.String(),
+		Identifier:   msg.Meta.Identifier,
+		Version:      msg.Meta.Version,
+	}
+
+	return createSyncAck(ack_meta, message_path)
+}
+
 func (c *gRPC_Client) syncRoutine() {
 	// Get the sync update stream from the Sync RPC
 	sync_stream, err := c.SyncService.Sync(c.ctx)
@@ -298,7 +420,7 @@ func (c *gRPC_Client) syncRoutine() {
 		_ = sync_stream.CloseSend() // Close the sending stream when the channel closes
 	}()
 
-	// Routine for receiving server response
+	// Routine for receiving server messages (updates push or acknowledgements)
 	for {
 		msg, err := sync_stream.Recv()
 		if err == io.EOF {
@@ -306,13 +428,22 @@ func (c *gRPC_Client) syncRoutine() {
 			c.cancel() // Treat server-side stream closure as a reason to reconnect
 			break
 		}
+
 		if err != nil {
 			utils.ERROR("[RPC_Client] Receiver Error, cancelling client context: ", err)
 			c.cancel() // Cancel context to trigger reconnection
 			break
 		}
 
-		utils.INFO("Received update: ", msg.String())
+		// Process the arrived message and if the result of the operation is
+		// an acknowledgment message then send it to the server
+		if ack_msg := c.processReceivedMsg(msg); ack_msg != nil {
+			if err := sync_stream.Send(ack_msg); err != nil {
+				utils.ERROR("Error when seding ACK: ", err)
+				c.cancel()
+				return
+			}
+		}
 	}
 }
 
@@ -462,19 +593,26 @@ mainloop:
 		go c.heartbeatRoutine(heartbeat_interval)
 		go c.syncRoutine()
 
-		// D. Block until the context is not closed. If the context is
-		// closed this means that the routine must exit
-		<-c.ctx.Done()
+		// D & E. Block until the context is canceled (reconnect) OR the global
+		// stop signal is received (exit). The global stop signal is the result
+		// of the global client application context being closed
+		select {
+		case <-c.ctx.Done():
+			// E. Reconnection Logic: If we reach here, c.ctx was cancelled.
+			// We need to re-establish connection and start the cycle over.
+			utils.WARN("[RPC_Client] Client context cancelled. Reconnecting...")
 
-		// E. Reconnection Logic: If we reach here, c.ctx was cancelled.
-		// We need to re-establish connection and start the cycle over.
-		utils.WARN("[RPC_Client] Client context cancelled ... Restarting client routines")
+			// First, close existing old connection and try to create a new one
+			_ = c.internalClose()
+			time.Sleep(backoff)
+			backoff = time.Second // Reset backoff for the next attempt
+			goto mainloop
 
-		// First, we need to close existing old connection and try to create a new one
-		_ = c.internalClose()
-		time.Sleep(backoff)
-		backoff = time.Second
-		goto mainloop
+		case <-c.stop_ch:
+			// The global application context was canceled (e.g., Ctrl+C in Run method).
+			utils.INFO("[RPC_Client] Global Stop signal received. Exiting internalRun.")
+			return // This will gracefully exit the internalRun goroutine
+		}
 	}
 }
 

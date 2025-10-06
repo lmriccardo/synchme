@@ -98,3 +98,15 @@ func RemoveAll(path string, callback func(string) error) error {
 
 	return nil
 }
+
+// IsFileOpen checks if a file is open/locked by another process.
+// It automatically picks the correct implementation based on OS.
+func IsFileOpen(path string) bool {
+	return isFileOpen(path)
+}
+
+// Exist checks if a file exists in the current machine
+func Exist(path string) bool {
+	_, err := os.Stat(path)
+	return os.IsExist(err)
+}
