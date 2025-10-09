@@ -447,37 +447,44 @@ func (c *gRPC_Client) syncRoutine() {
 	}
 }
 
-// TODO: To be implemented
-func (c *gRPC_Client) getAuthTokenFromServer() (string, error) {
-	return "token", nil
-}
-
-// TODO: To be implemented
-func (c *gRPC_Client) Authenticate() error {
+// InitSyncSession initializes the synchronization session by authenticating the client
+// to the server, retrieving the authorization Token and finally registering the paths.
+func (c *gRPC_Client) InitSyncSession() error {
 	if !c.ServerActive.Load() {
-		// Fail fast if the health routine already determined the server is unhealthy.
-		return fmt.Errorf("server is not active; skipping authentication")
+		return fmt.Errorf("the server is not active")
 	}
 
-	utils.INFO("[RPC_Client] Performing Authentication")
-
-	_, err := c.getAuthTokenFromServer()
-
-	// If authentication fails, we should stop proceeding and let the Run loop retry.
+	// Step 1: Perform authentication by requesting the Authorization Token
+	utils.INFO("[gRPC_Client] Attempting Auth Token Generation")
+	token_resp, err := c.SessionService.GetAuthToken(c.ctx, &session.TokenRequest{ClientId: c.ClientID.String()})
 	if err != nil {
-		utils.ERROR("[RPC_Client] Authentication failed: ", err)
-		return err
+		return fmt.Errorf("unable to retrieve session token")
 	}
 
-	return nil
-}
-
-// TODO: To be extended and enhanced
-func (c *gRPC_Client) RegisterSession() error {
-	if !c.ServerActive.Load() {
-		// Fail fast if the health routine already determined the server is unhealthy.
-		return fmt.Errorf("server is not active; skipping session registration")
+	// Check that the authentication was correct and that the token has been
+	// retrieved correctly or generated correctly by the server
+	if token_resp.Status.Status == session.ErrorStatus_FAILURE {
+		return fmt.Errorf("%v", token_resp.Status.Reason)
 	}
+
+	// TODO: Set the Token and Expiration as client variable
+	// ...
+
+	utils.INFO("[gRPC_Client] Token generation was a Success. Registering folders to server.")
+
+	// Step 2: Registers the configuration path to the server
+	if hello_resp, err := c.SessionService.Hello(c.ctx,
+		&session.HelloRequest{ClientId: c.ClientID.String(), Paths: c.Config.FS_Notification.Paths},
+	); err != nil {
+		return fmt.Errorf("unable to register paths to the server")
+	} else if hello_resp.Status.Status == session.ErrorStatus_FAILURE {
+		return fmt.Errorf("%v", hello_resp.Status.Reason)
+	}
+
+	// If we have reached this point it means that registration went as
+	// expected and we can send an initial snapshot of the current folders
+	// to the server.
+	// TODO: Send snapshot ...
 
 	return nil
 }
@@ -574,14 +581,8 @@ mainloop:
 
 		backoff = time.Second // Reset the backoff amount to 1 second
 
-		// B.1: Authentication of the current client
-		if err := c.Authenticate(); err != nil {
-			time.Sleep(backoff)
-			continue
-		}
-
-		// B.2: Register the current client to a new session
-		if err := c.RegisterSession(); err != nil {
+		// B: Initialize the synchroization session by authentication and path registration
+		if err := c.InitSyncSession(); err != nil {
 			time.Sleep(backoff)
 			continue
 		}

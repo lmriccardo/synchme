@@ -1,3 +1,7 @@
+## Session Registration
+
+#### Sequence Diagram
+
 ```mermaid
 sequenceDiagram
     %% High level connection initialization diagram

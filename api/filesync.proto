@@ -4,15 +4,6 @@ package filesync;
 
 option go_package = "github.com/synchme/internal/proto/filesync;filesync";
 
-/**
- * Core Service for File Synchronization
-*/
-service FileSynch {
-
-    // Client pushes notification to the server, the server relays to interested clients
-    rpc Sync (stream SyncMessage) returns (stream SyncMessage);
-}
-
 // -------- Messages ---------
 
 // A generic wrapper for messages in the stream
@@ -66,4 +57,21 @@ message FileRemove {
 message SyncAck {
     string path      = 1; // The path relative to the ackd update
     string to_client = 2; // The origin client that sent the update
+}
+
+message PullMessage {
+    
+}
+
+message PushMessage {
+
+}
+
+/**
+ * Core Service for File Synchronization
+*/
+service FileSynch {
+    // Client pushes notification to the server, the server relays to interested clients
+    rpc Sync(stream SyncMessage) returns (stream SyncMessage);
+    rpc Push()
 }
