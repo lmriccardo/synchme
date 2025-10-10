@@ -6,25 +6,38 @@ import "google/protobuf/empty.proto";
 
 option go_package = "github.com/synchme/internal/proto/session;session";
 
-// Sent by the client when it connects after authentication
-message ClientHello {
-    string client_id = 1;                 // Unique ID for the client (client-side generation)
-    repeated string subscribed_paths = 2; // List of paths it wants to sync
-}
-
-// Sent by the server as response to the ClientHello message
-message HelloResponse {
-    string          server_ns        = 1; // The server that responded to the request
-    string          client_id        = 2; // Unique ID for the client (client-side generation)
-    repeated string subscribed_paths = 3; // List of paths actually assigned to the client
-
+message ErrorStatus {
     enum Status {
         SUCCESS = 0; // The request has been accepted
         FAILURE = 1; // The request has not been accepted
     }
 
-    Status status = 4; // The response status
-    string reason = 5; // An optional msg indicating the error reason
+    Status status = 1; // The response status
+    string reason = 2; // An optional msg indicating the error reason
+}
+
+// Sent by the client requesting the Authorization token for synchronization
+message TokenRequest {
+    string client_id = 1; // Unique ID for the client (client-side generation)
+}
+
+// Sent by the server when responding to the token request, once the authentication
+// operation is successful
+message TokenResponse {
+    string token           = 1; // The authorization token used by the server
+    int64  expiration_date = 2; // When the token will expire and a new one is required
+    ErrorStatus status     = 3; // The status of the response (OK/ERROR + optional reason)
+}
+
+// Sent by the client when it connects after authentication
+message HelloRequest {
+    string          client_id = 1; // Unique ID for the client (client-side generation)
+    repeated string paths     = 2; // List of paths it wants to sync
+}
+
+// Sent by the server as response to the ClientHello message
+message HelloResponse {
+    ErrorStatus status = 1; // The status of the response (OK/ERROR + optional reason)
 }
 
 // Sent periodically by the client to informs the server
@@ -35,7 +48,19 @@ message HeartbeatMsg {
     int64  timestamp = 2; // The timestamp
 }
 
+// Sent by the client to requests the name of all services
+// registered to the server.
+message ServicesResponse {
+    message Service {
+        string name     = 1; // The name of the service
+        bool   required = 2; // If the service is required to work or not
+    }
+    repeated Service services = 1; // A list with all services
+}
+
 service Session {
-    rpc Hello(ClientHello) returns (HelloResponse);
+    rpc GetAuthToken(TokenRequest) returns (TokenResponse);
+    rpc Hello(HelloRequest) returns (HelloResponse);
     rpc Heartbeat(HeartbeatMsg) returns (google.protobuf.Empty);
+    rpc Services(google.protobuf.Empty) returns (ServicesResponse);
 }

@@ -20,16 +20,20 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	Session_Hello_FullMethodName     = "/session.Session/Hello"
-	Session_Heartbeat_FullMethodName = "/session.Session/Heartbeat"
+	Session_GetAuthToken_FullMethodName = "/session.Session/GetAuthToken"
+	Session_Hello_FullMethodName        = "/session.Session/Hello"
+	Session_Heartbeat_FullMethodName    = "/session.Session/Heartbeat"
+	Session_Services_FullMethodName     = "/session.Session/Services"
 )
 
 // SessionClient is the client API for Session service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type SessionClient interface {
-	Hello(ctx context.Context, in *ClientHello, opts ...grpc.CallOption) (*HelloResponse, error)
+	GetAuthToken(ctx context.Context, in *TokenRequest, opts ...grpc.CallOption) (*TokenResponse, error)
+	Hello(ctx context.Context, in *HelloRequest, opts ...grpc.CallOption) (*HelloResponse, error)
 	Heartbeat(ctx context.Context, in *HeartbeatMsg, opts ...grpc.CallOption) (*emptypb.Empty, error)
+	Services(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ServicesResponse, error)
 }
 
 type sessionClient struct {
@@ -40,7 +44,17 @@ func NewSessionClient(cc grpc.ClientConnInterface) SessionClient {
 	return &sessionClient{cc}
 }
 
-func (c *sessionClient) Hello(ctx context.Context, in *ClientHello, opts ...grpc.CallOption) (*HelloResponse, error) {
+func (c *sessionClient) GetAuthToken(ctx context.Context, in *TokenRequest, opts ...grpc.CallOption) (*TokenResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(TokenResponse)
+	err := c.cc.Invoke(ctx, Session_GetAuthToken_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *sessionClient) Hello(ctx context.Context, in *HelloRequest, opts ...grpc.CallOption) (*HelloResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(HelloResponse)
 	err := c.cc.Invoke(ctx, Session_Hello_FullMethodName, in, out, cOpts...)
@@ -60,12 +74,24 @@ func (c *sessionClient) Heartbeat(ctx context.Context, in *HeartbeatMsg, opts ..
 	return out, nil
 }
 
+func (c *sessionClient) Services(ctx context.Context, in *emptypb.Empty, opts ...grpc.CallOption) (*ServicesResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ServicesResponse)
+	err := c.cc.Invoke(ctx, Session_Services_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // SessionServer is the server API for Session service.
 // All implementations must embed UnimplementedSessionServer
 // for forward compatibility.
 type SessionServer interface {
-	Hello(context.Context, *ClientHello) (*HelloResponse, error)
+	GetAuthToken(context.Context, *TokenRequest) (*TokenResponse, error)
+	Hello(context.Context, *HelloRequest) (*HelloResponse, error)
 	Heartbeat(context.Context, *HeartbeatMsg) (*emptypb.Empty, error)
+	Services(context.Context, *emptypb.Empty) (*ServicesResponse, error)
 	mustEmbedUnimplementedSessionServer()
 }
 
@@ -76,11 +102,17 @@ type SessionServer interface {
 // pointer dereference when methods are called.
 type UnimplementedSessionServer struct{}
 
-func (UnimplementedSessionServer) Hello(context.Context, *ClientHello) (*HelloResponse, error) {
+func (UnimplementedSessionServer) GetAuthToken(context.Context, *TokenRequest) (*TokenResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetAuthToken not implemented")
+}
+func (UnimplementedSessionServer) Hello(context.Context, *HelloRequest) (*HelloResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Hello not implemented")
 }
 func (UnimplementedSessionServer) Heartbeat(context.Context, *HeartbeatMsg) (*emptypb.Empty, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Heartbeat not implemented")
+}
+func (UnimplementedSessionServer) Services(context.Context, *emptypb.Empty) (*ServicesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method Services not implemented")
 }
 func (UnimplementedSessionServer) mustEmbedUnimplementedSessionServer() {}
 func (UnimplementedSessionServer) testEmbeddedByValue()                 {}
@@ -103,8 +135,26 @@ func RegisterSessionServer(s grpc.ServiceRegistrar, srv SessionServer) {
 	s.RegisterService(&Session_ServiceDesc, srv)
 }
 
+func _Session_GetAuthToken_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(TokenRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SessionServer).GetAuthToken(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Session_GetAuthToken_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SessionServer).GetAuthToken(ctx, req.(*TokenRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Session_Hello_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ClientHello)
+	in := new(HelloRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -116,7 +166,7 @@ func _Session_Hello_Handler(srv interface{}, ctx context.Context, dec func(inter
 		FullMethod: Session_Hello_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(SessionServer).Hello(ctx, req.(*ClientHello))
+		return srv.(SessionServer).Hello(ctx, req.(*HelloRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -139,6 +189,24 @@ func _Session_Heartbeat_Handler(srv interface{}, ctx context.Context, dec func(i
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Session_Services_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(emptypb.Empty)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(SessionServer).Services(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: Session_Services_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(SessionServer).Services(ctx, req.(*emptypb.Empty))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // Session_ServiceDesc is the grpc.ServiceDesc for Session service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -147,12 +215,20 @@ var Session_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*SessionServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
+			MethodName: "GetAuthToken",
+			Handler:    _Session_GetAuthToken_Handler,
+		},
+		{
 			MethodName: "Hello",
 			Handler:    _Session_Hello_Handler,
 		},
 		{
 			MethodName: "Heartbeat",
 			Handler:    _Session_Heartbeat_Handler,
+		},
+		{
+			MethodName: "Services",
+			Handler:    _Session_Services_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
