@@ -108,5 +108,5 @@ func IsFileOpen(path string) bool {
 // Exist checks if a file exists in the current machine
 func Exist(path string) bool {
 	_, err := os.Stat(path)
-	return os.IsExist(err)
+	return err == nil || os.IsExist(err)
 }

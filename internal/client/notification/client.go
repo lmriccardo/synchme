@@ -25,8 +25,6 @@ import (
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
-const CHUNK_SIZE = 64 * 1024 // 65536
-
 // --- gRPC Client Implementation ---
 
 var MESSAGE_COUNTER int64 = 0

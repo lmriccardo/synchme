@@ -1,6 +1,7 @@
 package notification
 
 import (
+	"github.com/lmriccardo/synchme/internal/client/consts"
 	"github.com/lmriccardo/synchme/internal/proto/filesync"
 	"github.com/lmriccardo/synchme/internal/utils"
 	"github.com/sergi/go-diff/diffmatchpatch"
@@ -20,7 +21,7 @@ func createUpdateMessage(event *NotificationEvent, meta *filesync.MessageMeta) [
 	}
 
 	// Create the slice of chunks from the text containing patches
-	data_chunks := utils.ChunkData([]byte(patches_str), CHUNK_SIZE)
+	data_chunks := utils.ChunkData([]byte(patches_str), consts.CHUNK_SIZE)
 	for chunk_idx, chunk_data := range data_chunks {
 		chunks = append(chunks, &filesync.SyncMessage{
 			Meta: meta,

@@ -59,13 +59,13 @@ message SyncAck {
     string to_client = 2; // The origin client that sent the update
 }
 
-message PullMessage {
+// message PullMessage {
     
-}
+// }
 
-message PushMessage {
+// message PushMessage {
 
-}
+// }
 
 /**
  * Core Service for File Synchronization
@@ -73,5 +73,5 @@ message PushMessage {
 service FileSynch {
     // Client pushes notification to the server, the server relays to interested clients
     rpc Sync(stream SyncMessage) returns (stream SyncMessage);
-    rpc Push()
+    // rpc Push()
 }

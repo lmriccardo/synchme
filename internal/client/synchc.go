@@ -8,25 +8,37 @@ import (
 	"time"
 
 	"github.com/lmriccardo/synchme/internal/client/config"
+	"github.com/lmriccardo/synchme/internal/client/consts"
 	"github.com/lmriccardo/synchme/internal/client/notification"
 	"github.com/lmriccardo/synchme/internal/utils"
 )
 
-func Run(conf_file_path string) {
+func LoadConfEnvironment() *config.ClientConf {
+	// Load the environment
+	config.LoadEnvironment()
+
+	// Load the configuration
+	conf_file_path := os.Getenv(consts.SYNCHME_CONFIG)
+	client_conf := config.ReadConf(conf_file_path)
+	return client_conf
+}
+
+func Run() {
+	// Load the application environment and configuration
+	client_conf := LoadConfEnvironment()
+	if client_conf == nil {
+		return
+	}
+
+	utils.INFO("Read configuration ", client_conf.Path)
+	defer config.WriteEnvironment()
+
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	// Creates the producer consumer communication channel
 	ch := notification.NewChannel(100)
 	defer ch.Close()
-
-	// Load the configuration
-	client_conf := config.ReadConf(conf_file_path)
-	if client_conf == nil {
-		return
-	}
-
-	utils.INFO("Read configuration ", conf_file_path)
 
 	// Creates a new watcher with 0 chan buffer size
 	watcher, err := notification.NewFileWatcher(ch, client_conf)

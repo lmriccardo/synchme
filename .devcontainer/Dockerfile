@@ -33,6 +33,7 @@ ENV GO111MODULE=on
 ENV GOPATH=/home/vscode/go
 ENV GOMODCACHE=/home/vscode/go/pkg/mod
 ENV PATH=$PATH:$GOPATH/bin
+ENV CGO_ENABLED=1
 
 # Create Go directories with proper ownership
 RUN mkdir -p $GOPATH/bin $GOPATH/pkg $GOPATH/src
@@ -62,3 +63,5 @@ RUN PB_REL="https://github.com/protocolbuffers/protobuf/releases" \
     && rm /tmp/protoc.zip
 
 RUN go mod download github.com/google/uuid@v1.6.0
+RUN go mod download github.com/mattn/go-sqlite3@v1.14.32
+RUN go mod download github.com/joho/godotenv@v1.5.1

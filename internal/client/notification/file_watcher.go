@@ -11,11 +11,10 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 	"github.com/lmriccardo/synchme/internal/client/config"
+	"github.com/lmriccardo/synchme/internal/client/consts"
 	"github.com/lmriccardo/synchme/internal/utils"
 	"github.com/sergi/go-diff/diffmatchpatch"
 )
-
-const THRESHOLD = 50 * time.Millisecond
 
 type FileWatcher struct {
 	Channel    *WatcherChannel                // Write-only channel for fs events
@@ -235,7 +234,7 @@ func (fw *FileWatcher) handleCreateEvent(event *NotificationEvent) bool {
 	if fw.Flag.Load() {
 		// If the difference in time is grater then the threshold returns
 		diff := event.Timestamp.Sub(fw.LastEvent.Timestamp)
-		if diff > THRESHOLD || !fw.LastEvent.Op.Has(Remove|Rename) {
+		if diff > consts.THRESHOLD || !fw.LastEvent.Op.Has(Remove|Rename) {
 			// Here we should take the file content and put it in the
 			// patches attribute of the notification event
 			if content, ok := fw.FileCache.GetWithDefault(event.Path, ""); ok {
