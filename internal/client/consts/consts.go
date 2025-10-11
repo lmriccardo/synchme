@@ -4,6 +4,7 @@ import "time"
 
 const (
 	// Environment Variables Names
+	SYNCHME_SYNC_FOLDER         string = "SYNCHME_SYNC_FOLDER"
 	SYNCHME_FOLDER              string = "SYNCHME_FOLDER"
 	SYNCHME_API_KEY             string = "SYNCHME_API_KEY"
 	SYNCHME_CONFIG              string = "SYNCHME_CONFIG"
@@ -11,12 +12,15 @@ const (
 	SYNCHME_ENV_FILE            string = "SYNCHME_ENV_FILE"
 	SYNCHME_DEFAULT_CONFIG_PATH string = "SYNCHME_DEFAULT_CONFIG_PATH"
 
-	SYNCHME_DEFAULT_FOLDER  string        = ".synchme"
-	SYNCHME_DEFAULT_API_KEY string        = ""
-	SYNCHME_DEFAULT_CONFIG  string        = "config.toml"
-	ENV_FILE_NAME           string        = ".env"
-	CHUNK_SIZE              uint32        = 64 * 1024             // 65536
-	THRESHOLD               time.Duration = 50 * time.Millisecond // 50 millisec
+	SYNCHME_DEFAULT_FOLDER      string        = ".synchme"
+	SYNCHME_DEFAULT_SYNC_FOLDER string        = "SynchMe Remote"
+	SYNCHME_DEFAULT_API_KEY     string        = ""
+	SYNCHME_DEFAULT_CONFIG      string        = "config.toml"
+	SYNCHME_HISTORY_FOLDER      string        = "syncd"
+	SYNCHME_HISTORY_CONTENT     string        = "syncd_list.gob"
+	ENV_FILE_NAME               string        = ".env"
+	CHUNK_SIZE                  uint32        = 64 * 1024             // 65536
+	THRESHOLD                   time.Duration = 50 * time.Millisecond // 50 millisec
 
 	ENV_CONTENT_HEADER string = "# .env file\n" +
 		"# Secrets and configuration for the local environment\n\n" +

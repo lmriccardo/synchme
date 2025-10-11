@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -54,6 +53,7 @@ func StringExpandEnv(value string) string {
 // PrintEnvironment prints all custom environment variables
 func PrintEnvironment() {
 	vars := []string{consts.SYNCHME_FOLDER,
+		consts.SYNCHME_SYNC_FOLDER,
 		consts.SYNCHME_API_KEY,
 		consts.SYNCHME_CONFIG}
 
@@ -76,15 +76,12 @@ func LoadEnvironment() {
 		utils.FATAL("Unable to retrieve user home folder: ", err)
 	}
 
-	sync_folder := filepath.Join(home_folder, consts.SYNCHME_DEFAULT_FOLDER)
-	if !utils.Exist(sync_folder) {
-		if err := os.Mkdir(sync_folder, fs.ModeType); err != nil {
-			utils.FATAL("Unable to create ", sync_folder, ": ", err)
-		}
-	}
+	// Create the .synchme folder for history, config and .env file
+	synchme_folder := filepath.Join(home_folder, consts.SYNCHME_DEFAULT_FOLDER)
+	utils.MkdirNoErr(synchme_folder, os.ModePerm, true)
 
 	load_result := true
-	synchme_env_file := filepath.Join(sync_folder, consts.ENV_FILE_NAME)
+	synchme_env_file := filepath.Join(synchme_folder, consts.ENV_FILE_NAME)
 
 	// Load the .env file from the current working folder if it exists
 	// otherwise checks if the .env file is in the synchme folder.
@@ -104,30 +101,33 @@ func LoadEnvironment() {
 
 	// For facility sets also the synchme root folder as env variable as well
 	// as the absolute path to the .env file to write the content when exiting
-	SetEnv(consts.SYNCHME_ROOT_FOLDER, sync_folder)
+	SetEnv(consts.SYNCHME_FOLDER, synchme_folder)
 	SetEnv(consts.SYNCHME_ENV_FILE, synchme_env_file)
 
 	// Compute the path of the default configuration file
-	default_config_file := filepath.Join(sync_folder, consts.SYNCHME_DEFAULT_CONFIG)
+	default_config_file := filepath.Join(synchme_folder, consts.SYNCHME_DEFAULT_CONFIG)
 	SetEnv(consts.SYNCHME_DEFAULT_CONFIG_PATH, default_config_file)
+
+	// If the synchme folder is empty, set it to the default value
+	if len(os.Getenv(consts.SYNCHME_SYNC_FOLDER)) == 0 {
+		// Create the target remote folder where files are saved by default
+		sync_folder := filepath.Join(home_folder, consts.SYNCHME_DEFAULT_SYNC_FOLDER)
+		utils.MkdirNoErr(sync_folder, os.ModePerm, true)
+		SetEnv(consts.SYNCHME_SYNC_FOLDER, sync_folder)
+	}
 
 	// If none of the .env file exist then we need to set default values
 	if !load_result {
 		utils.INFO("Loading default environment")
 
 		// Set default values into the environment variables
-		SetEnv(consts.SYNCHME_FOLDER, sync_folder)
 		SetEnv(consts.SYNCHME_API_KEY, consts.SYNCHME_DEFAULT_API_KEY)
 		SetEnv(consts.SYNCHME_CONFIG, default_config_file)
+		WriteEnvironment()
 	} else {
-		// If the synchme folder is empty, set it to the default value
-		if len(os.Getenv(consts.SYNCHME_FOLDER)) == 0 {
-			SetEnv(consts.SYNCHME_FOLDER, sync_folder)
-		}
-
 		// At this point, some variables might use existing environment variable.
 		// Therefore, we need to expand them using the custom expand function
-		SetEnv(consts.SYNCHME_FOLDER, StringExpandEnv(os.Getenv(consts.SYNCHME_FOLDER)))
+		SetEnv(consts.SYNCHME_SYNC_FOLDER, StringExpandEnv(os.Getenv(consts.SYNCHME_SYNC_FOLDER)))
 		SetEnv(consts.SYNCHME_CONFIG, StringExpandEnv(os.Getenv(consts.SYNCHME_CONFIG)))
 	}
 
@@ -148,7 +148,7 @@ func WriteEnvironment() {
 
 	// Create the content to be written
 	content := consts.ENV_CONTENT_HEADER
-	content += fmt.Sprintf("%v=%v\n", consts.SYNCHME_FOLDER, os.Getenv(consts.SYNCHME_FOLDER))
+	content += fmt.Sprintf("%v=%v\n", consts.SYNCHME_SYNC_FOLDER, os.Getenv(consts.SYNCHME_SYNC_FOLDER))
 	content += fmt.Sprintf("%v=%v\n", consts.SYNCHME_API_KEY, os.Getenv(consts.SYNCHME_API_KEY))
 	content += fmt.Sprintf("%v=%v\n", consts.SYNCHME_CONFIG, os.Getenv(consts.SYNCHME_CONFIG))
 

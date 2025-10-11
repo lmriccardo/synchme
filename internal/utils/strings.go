@@ -1,6 +1,8 @@
 package utils
 
 import (
+	"crypto/sha256"
+	"fmt"
 	"strings"
 )
 
@@ -54,4 +56,12 @@ func StringCenter(content string, width int) string {
 	// 1. Right-justify (pads the left) to the width of the left pad + content.
 	// 2. Left-justify the result (pads the right) to the final total width.
 	return StringJustifyL(StringJustifyR(content, left_pad), width)
+}
+
+// ComputeSHA256 returns the SHA-256 of the input string
+func ComputeSHA256(input string) (hashed string) {
+	hash := sha256.New()
+	hash.Write([]byte(input))
+	hashed = fmt.Sprintf("%x", hash.Sum(nil))
+	return
 }

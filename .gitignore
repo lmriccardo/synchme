@@ -40,5 +40,6 @@ coverage.out
 
 # Misc
 .env
+.env?
 
 example/

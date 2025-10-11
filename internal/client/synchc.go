@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/signal"
 	"syscall"
@@ -13,20 +14,32 @@ import (
 	"github.com/lmriccardo/synchme/internal/utils"
 )
 
-func LoadConfEnvironment() *config.ClientConf {
+var client_conf *config.ClientConf
+var history *notification.History
+
+func InitialSetup() error {
 	// Load the environment
 	config.LoadEnvironment()
 
 	// Load the configuration
 	conf_file_path := os.Getenv(consts.SYNCHME_CONFIG)
-	client_conf := config.LoadConfiguration(conf_file_path)
-	return client_conf
+	client_conf = config.LoadConfiguration(conf_file_path)
+	if client_conf == nil {
+		return errors.New("")
+	}
+
+	// Load or initialize the history
+	history = notification.LoadHistory(client_conf)
+	if history == nil {
+		return errors.New("")
+	}
+
+	return nil
 }
 
 func Run() {
 	// Load the application environment and configuration
-	client_conf := LoadConfEnvironment()
-	if client_conf == nil {
+	if err := InitialSetup(); err != nil {
 		return
 	}
 

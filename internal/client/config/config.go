@@ -17,18 +17,18 @@ import (
 // Configuration-releated settings
 // WatchConf: The current file is automatically watched
 // SynchConf: If the conf changes, remote synch is provided
-// Restart  : If the conf changes, the service is automatically restarted
 type Config struct {
 	WatchConf *bool `toml:"watch_conf" validate:"required,boolean"`
 	SynchConf *bool `toml:"synch_conf" validate:"required,boolean"`
 }
 
 // FileSystemNotification-releated settings
-// Paths        : Absolute paths of file/folder to watch
-// Recursive    : Perform recursive search on added folders
-// BaseTTL      : [seconds] Base TTL of content in the cache
-// MaxTTL       : [seconds] Base TTL of content in the cache
-// ExpirationInt: [seconds] Interval of time between two expiration checks
+// Paths         : Absolute paths of file/folder to watch
+// BaseTTL       : [seconds] Base TTL of content in the cache
+// MaxTTL        : [seconds] Base TTL of content in the cache
+// ExpirationInt : [seconds] Interval of time between two expiration checks
+// SynchInterval : [seconds] The minimum interval between two equal events to synchronize
+// Filters		 : FS Operations to be filtered (WRITE, CREATE, REMOVE, RENAME)
 type FS_Notification struct {
 	Paths         []string `toml:"paths"`
 	BaseTTL       int64    `toml:"caching_base_ttl" validate:"required,numeric,min=1"`
@@ -39,10 +39,9 @@ type FS_Notification struct {
 }
 
 // Network-releated settings
-// RelayIP         : The IP address of the relay server
-// RelayPort       : The IP port of the relay server
-// NetworkInterface: Sender network interface
-// SourcePort      : Client source port
+// ServerHost        : The IP address or the hostname of the relay server
+// ServerPort        : The IP port of the relay server
+// HeartbeatInterval : [seconds] The time interval between two heartbeats
 type Network struct {
 	ServerHost        string `toml:"relay_host" validate:"required,ip_or_hostname"`
 	ServerPort        int    `toml:"relay_port" validate:"required,min=1,max=65535"`
