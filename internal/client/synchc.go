@@ -19,7 +19,7 @@ func LoadConfEnvironment() *config.ClientConf {
 
 	// Load the configuration
 	conf_file_path := os.Getenv(consts.SYNCHME_CONFIG)
-	client_conf := config.ReadConf(conf_file_path)
+	client_conf := config.LoadConfiguration(conf_file_path)
 	return client_conf
 }
 

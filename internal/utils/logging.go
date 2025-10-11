@@ -14,19 +14,19 @@ const (
 
 // INFO logs an information-level message
 func INFO(msg ...any) {
-	log.Println(string(Green), "[INFO]", string(Reset), fmt.Sprint(msg...))
+	log.Printf("%s%s\n", string(Green)+StringJustifyL("[INFO]", 10)+string(Reset), fmt.Sprint(msg...))
 }
 
 // WARN logs a warning-level message
 func WARN(msg ...any) {
-	log.Println(string(Yellow), "[WARNING]", string(Reset), fmt.Sprint(msg...))
+	log.Printf("%s%s\n", string(Yellow)+"[WARNING] "+string(Reset), fmt.Sprint(msg...))
 }
 
 // ERROR logs an error-level message
 func ERROR(msg ...any) {
-	log.Println(string(Red), "[ERROR]", string(Reset), fmt.Sprint(msg...))
+	log.Printf("%s%s\n", string(Red)+StringJustifyL("[ERROR]", 10)+string(Reset), fmt.Sprint(msg...))
 }
 
 func FATAL(msg ...any) {
-	log.Fatalln(string(Red), "[FATAL]", string(Reset), fmt.Sprint(msg...))
+	log.Fatalf("%s%s\n", string(Red)+StringJustifyL("[FATAL]", 10)+string(Reset), fmt.Sprint(msg...))
 }

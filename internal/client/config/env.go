@@ -107,13 +107,15 @@ func LoadEnvironment() {
 	SetEnv(consts.SYNCHME_ROOT_FOLDER, sync_folder)
 	SetEnv(consts.SYNCHME_ENV_FILE, synchme_env_file)
 
+	// Compute the path of the default configuration file
+	default_config_file := filepath.Join(sync_folder, consts.SYNCHME_DEFAULT_CONFIG)
+	SetEnv(consts.SYNCHME_DEFAULT_CONFIG_PATH, default_config_file)
+
 	// If none of the .env file exist then we need to set default values
 	if !load_result {
 		utils.INFO("Loading default environment")
 
 		// Set default values into the environment variables
-		default_config_file := filepath.Join(sync_folder, consts.SYNCHME_DEFAULT_CONFIG)
-
 		SetEnv(consts.SYNCHME_FOLDER, sync_folder)
 		SetEnv(consts.SYNCHME_API_KEY, consts.SYNCHME_DEFAULT_API_KEY)
 		SetEnv(consts.SYNCHME_CONFIG, default_config_file)

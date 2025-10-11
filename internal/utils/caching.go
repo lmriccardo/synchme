@@ -21,7 +21,7 @@ type CacheEntry struct {
 
 func (ce *CacheEntry) String() string {
 	return fmt.Sprintf(
-		"Entry{ Key=%v, Expiration=%v, TTL=%v }",
+		"{\n\tKey=%v,\n\tExpiration=%v,\n\tTTL=%v\n}",
 		ce.Key,
 		ce.Expiration.Format(time.RFC3339),
 		ce.TimeToLive)
@@ -66,7 +66,7 @@ func (c *Cache) Set(key string, value any, ttl time.Duration, start bool) {
 	// Adds the item into the cache
 	c.Items[key] = &CacheEntry{key, value, exp, start, ttl, 0}
 
-	INFO("New Cache Entry: ", c.Items[key])
+	INFO("New Cache Entry:\n", c.Items[key])
 }
 
 // Start starts the expiration process of the cache element

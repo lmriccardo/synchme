@@ -2,12 +2,15 @@ package config
 
 import (
 	"net"
+	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 	"github.com/go-playground/validator/v10"
+	"github.com/lmriccardo/synchme/internal/client/consts"
 	"github.com/lmriccardo/synchme/internal/utils"
 )
 
@@ -145,4 +148,63 @@ func ReadConf(path string) *ClientConf {
 
 	synchme_client_conf.Path, _ = filepath.Abs(path)
 	return &synchme_client_conf
+}
+
+func GetDefaultConf() *ClientConf {
+	b := func(val bool) *bool {
+		return &val
+	}
+
+	return &ClientConf{
+		Path:   os.Getenv(consts.SYNCHME_DEFAULT_CONFIG_PATH),
+		Config: Config{WatchConf: b(true), SynchConf: b(false)},
+		FS_Notification: FS_Notification{
+			Paths:         []string{},
+			BaseTTL:       900,
+			MaxTTL:        10800,
+			ExpirationInt: 1,
+			SynchInterval: 0.01,
+			Filters:       []string{},
+		},
+		Network: Network{
+			ServerHost:        "127.0.0.1",
+			ServerPort:        50051,
+			HeartbeatInterval: 1,
+		},
+	}
+}
+
+// LoadConfiguration either reads or create a default configuration
+// and returns it as a `ClientConf` pointer.
+func LoadConfiguration(path string) *ClientConf {
+	// If the path exists than we can read the configuration
+	if utils.Exist(path) && strings.HasSuffix(path, ".toml") {
+		return ReadConf(path)
+	}
+
+	client_conf := GetDefaultConf() // Generate a default conf
+	utils.WARN("Configuration path ", path, " does not exists!")
+	utils.INFO("Loading default configuration into ", client_conf.Path)
+
+	// Write the conf into the default destination
+	flags := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
+	file, err := os.OpenFile(client_conf.Path, flags, 0777)
+	if err != nil {
+		utils.FATAL("Unable to open file ", client_conf.Path, ": ", err)
+	}
+
+	defer func() {
+		if err := file.Close(); err != nil {
+			utils.ERROR("Error when closing file: ", err)
+		}
+	}()
+
+	if err := toml.NewEncoder(file).Encode(*client_conf); err != nil {
+		utils.FATAL("Unable to encode the default configuration: ", err)
+	}
+
+	// Set the synchme config environment variable to the new file
+	SetEnv(consts.SYNCHME_CONFIG, client_conf.Path)
+
+	return client_conf
 }

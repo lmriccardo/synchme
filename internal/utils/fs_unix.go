@@ -13,12 +13,23 @@ func isFileOpen(path string) bool {
 	if err != nil {
 		return true // cannot open, possibly locked or missing
 	}
-	defer f.Close()
+
+	defer func() {
+		if err := f.Close(); err != nil {
+			ERROR("Error when closing ", path, ": ", err)
+		}
+	}()
 
 	// Try to acquire an exclusive non-blocking lock
 	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		return true // locked by another process
 	}
-	defer syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+
+	defer func() {
+		if err := syscall.Flock(int(f.Fd()), syscall.LOCK_UN); err != nil {
+			ERROR("Error when calling Flock: ", err)
+		}
+	}()
+
 	return false
 }

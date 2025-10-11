@@ -4,11 +4,12 @@ import "time"
 
 const (
 	// Environment Variables Names
-	SYNCHME_FOLDER      string = "SYNCHME_FOLDER"
-	SYNCHME_API_KEY     string = "SYNCHME_API_KEY"
-	SYNCHME_CONFIG      string = "SYNCHME_CONFIG"
-	SYNCHME_ROOT_FOLDER string = "SYNCHME_ROOT_FOLDER"
-	SYNCHME_ENV_FILE    string = "SYNCHME_ENV_FILE"
+	SYNCHME_FOLDER              string = "SYNCHME_FOLDER"
+	SYNCHME_API_KEY             string = "SYNCHME_API_KEY"
+	SYNCHME_CONFIG              string = "SYNCHME_CONFIG"
+	SYNCHME_ROOT_FOLDER         string = "SYNCHME_ROOT_FOLDER"
+	SYNCHME_ENV_FILE            string = "SYNCHME_ENV_FILE"
+	SYNCHME_DEFAULT_CONFIG_PATH string = "SYNCHME_DEFAULT_CONFIG_PATH"
 
 	SYNCHME_DEFAULT_FOLDER  string        = ".synchme"
 	SYNCHME_DEFAULT_API_KEY string        = ""
