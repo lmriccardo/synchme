@@ -22,6 +22,12 @@ const (
 	CHUNK_SIZE                  uint32        = 64 * 1024             // 65536
 	THRESHOLD                   time.Duration = 50 * time.Millisecond // 50 millisec
 
+	SYNCD_INDEX_FILE     string = "index.sqlite"
+	SYNCD_HISTORY_FOLDER string = "history"
+	SYNCD_COMMITS_FOLDER string = "commits"
+	SYNCD_OBJECTS_FOLDER string = "objects"
+	SYNCD_HEAD_FILE      string = "HEAD"
+
 	ENV_CONTENT_HEADER string = "# .env file\n" +
 		"# Secrets and configuration for the local environment\n\n" +
 		"# Existing environment variables can be used to construct new ones.\n" +

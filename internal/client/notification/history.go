@@ -24,6 +24,17 @@ func createSyncdFolders(h *History) {
 		dir_folder_name := filepath.Base(path) + ".dir"
 		syncd_folder := filepath.Join(h.Path, dir_folder_name)
 		utils.MkdirNoErr(syncd_folder, 0777, false)
+
+		// Also creates all the subfolders, the index.sqlite and the HEAD file
+		// TODO: Create the index.sqlite file
+		history_folder := filepath.Join(syncd_folder, consts.SYNCD_HISTORY_FOLDER)
+		commits_folder := filepath.Join(syncd_folder, consts.SYNCD_COMMITS_FOLDER)
+		objects_folder := filepath.Join(syncd_folder, consts.SYNCD_OBJECTS_FOLDER)
+
+		utils.MkdirNoErr(history_folder, 0777, false)
+		utils.MkdirNoErr(commits_folder, 0777, false)
+		utils.MkdirNoErr(objects_folder, 0777, false)
+
 		utils.INFO("Created folder ", syncd_folder)
 	}
 }
@@ -75,6 +86,8 @@ func setupFolders(h *History, conf *config.ClientConf) {
 			fmt.Printf("%s not found!\n", sync_path)
 		}
 	}
+
+	// TODO: Create the HEAD file
 }
 
 // LoadHistory initializes/load the local history

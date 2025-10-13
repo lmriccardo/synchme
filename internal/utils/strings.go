@@ -6,6 +6,22 @@ import (
 	"strings"
 )
 
+// ascii defines the characters used for table borders.
+// We only use single-line characters for simplicity without a dedicated double-line option.
+const (
+	hb  = "─" // horizontal border
+	vb  = "│" // vertical border
+	dt  = "┬" // down T
+	ut  = "┴" // up T
+	lt  = "┤" // left T
+	rt  = "├" // right T
+	adr = "┌" // angled down-right
+	adl = "┐" // angled down-left
+	aur = "└" // angled up-right
+	aul = "┘" // angled up-left
+	cr  = "┼" // cross
+)
+
 // StringInsertPad repeats a padding string a specified number of times on the
 // left and right sides of the input string 's'.
 func StringInsertPad(s string, l_size, r_size int, pad_s string) string {
@@ -64,4 +80,81 @@ func ComputeSHA256(input string) (hashed string) {
 	hash.Write([]byte(input))
 	hashed = fmt.Sprintf("%x", hash.Sum(nil))
 	return
+}
+
+// calcColWidths computes the maximum text width for each column
+// across all rows. Used to align the table columns properly.
+func CalcColWidths(rows [][]string) []int {
+	if len(rows) == 0 {
+		return nil
+	}
+	widths := make([]int, len(rows[0]))
+	for _, row := range rows {
+		for i, cell := range row {
+			if len(cell) > widths[i] {
+				widths[i] = len(cell)
+			}
+		}
+	}
+	return widths
+}
+
+// makeTopBorder builds the top border line of the table,
+// using ┌ ┬ ┐ characters to form corners and intersections.
+func MakeTopBorder(widths []int) string {
+	var sb strings.Builder
+	sb.WriteString(adr)
+	for i, w := range widths {
+		sb.WriteString(strings.Repeat(hb, w+2))
+		if i == len(widths)-1 {
+			sb.WriteString(adl)
+		} else {
+			sb.WriteString(dt)
+		}
+	}
+	return sb.String()
+}
+
+// makeMidBorder builds a separator line between header and body rows,
+// using ├ ┼ ┤ to connect cells horizontally and vertically.
+func MakeMidBorder(widths []int) string {
+	var sb strings.Builder
+	sb.WriteString(rt)
+	for i, w := range widths {
+		sb.WriteString(strings.Repeat(hb, w+2))
+		if i == len(widths)-1 {
+			sb.WriteString(lt)
+		} else {
+			sb.WriteString(cr)
+		}
+	}
+	return sb.String()
+}
+
+// makeBottomBorder builds the bottom border line of the table,
+// using └ ┴ ┘ characters for the corners and intersections.
+func MakeBottomBorder(widths []int) string {
+	var sb strings.Builder
+	sb.WriteString(aur)
+	for i, w := range widths {
+		sb.WriteString(strings.Repeat(hb, w+2))
+		if i == len(widths)-1 {
+			sb.WriteString(aul)
+		} else {
+			sb.WriteString(ut)
+		}
+	}
+	return sb.String()
+}
+
+// formatRow formats a single row of data cells into a Unicode-bordered line.
+// It uses │ separators between columns and right-pads each cell to fit its width.
+func FormatRow(cells []string, widths []int) string {
+	var sb strings.Builder
+	sb.WriteString(vb)
+	for i, cell := range cells {
+		sb.WriteString(" " + StringInsertPad(cell, 0, widths[i], " ") + " " + vb)
+	}
+	sb.WriteString("\n")
+	return sb.String()
 }

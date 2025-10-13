@@ -139,6 +139,11 @@ func Not(a bool) bool {
 	return !a
 }
 
+// ErrorHandler executes a function and checks if it returns a single error.
+//
+// It uses reflection to call any function (`fn`) with a variable number of
+// arguments (`args`). If the function returns a single value that is a
+// non-nil `error`, it prints the error message to standard output.
 func ErrorHandler(fn any, args ...any) {
 	v := reflect.ValueOf(fn)
 	if v.Kind() != reflect.Func {
