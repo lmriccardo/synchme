@@ -1,6 +1,8 @@
 package utils
 
 import (
+	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -301,4 +303,105 @@ func ListFolder(root string) []string {
 	}
 
 	return dir_content
+}
+
+// Copy recursively copies a file or directory from src to dstRoot.
+// If src is a file, it's copied directly into dstRoot.
+// If src is a directory, its entire tree is replicated under dstRoot.
+func Copy(src_path, dst_root string) error {
+	// Check that the source path exists
+	info, err := os.Stat(src_path)
+	if err != nil {
+		return fmt.Errorf("source path does not exist: %w", err)
+	}
+
+	// Define helper function to copy a single file efficiently
+	copyFile := func(srcFile, dstFile string, perm fs.FileMode) error {
+		in, err := os.Open(srcFile)
+		if err != nil {
+			return fmt.Errorf("failed to open source file: %w", err)
+		}
+
+		defer ErrorHandler(in.Close)
+
+		flags := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
+		out, err := os.OpenFile(dstFile, flags, perm)
+		if err != nil {
+			return fmt.Errorf("failed to create destination file: %w", err)
+		}
+
+		defer ErrorHandler(out.Close)
+
+		// Stream data directly without loading entire file into memory
+		if _, err = io.Copy(out, in); err != nil {
+			return fmt.Errorf("failed to copy file contents: %w", err)
+		}
+
+		// Flush data to disk
+		if err = out.Sync(); err != nil {
+			return fmt.Errorf("failed to sync destination file: %w", err)
+		}
+
+		return nil
+	}
+
+	// If the path is a file then we can easily create a new file with the same
+	// name and copy its content into the destination
+	if !info.IsDir() {
+		dstFile := filepath.Join(dst_root, filepath.Base(src_path))
+		return copyFile(src_path, dstFile, info.Mode())
+	}
+
+	// Otherwise, it is a folder. In this case we need to copy the entire tree
+	// into the destination folder. First, we need to create the input folder
+	dstRootFolder := filepath.Join(dst_root, filepath.Base(src_path))
+	if err := os.MkdirAll(dstRootFolder, info.Mode()); err != nil {
+		return fmt.Errorf("failed to create destination root: %w", err)
+	}
+
+	// Walk the source directory tree
+	if err = filepath.WalkDir(src_path,
+		func(subpath string, d fs.DirEntry, walkErr error) error {
+			// If the input error is different from nil then we
+			// cannot continue diving into the folder tree and just
+			// returns the error
+			if walkErr != nil {
+				return walkErr
+			}
+
+			// If the current path is the root folder just continue
+			if subpath == src_path {
+				return nil
+			}
+
+			// Compute destination path by replacing the root part
+			dstPath := strings.Replace(subpath, src_path, dstRootFolder, 1)
+
+			// Get file info for permissions
+			info, err := d.Info()
+			if err != nil {
+				return err
+			}
+
+			if d.IsDir() {
+				// Create directory with same permissions
+				if err := os.MkdirAll(dstPath, info.Mode()); err != nil {
+					return fmt.Errorf("failed to create directory %s: %w", dstPath, err)
+				}
+			} else {
+				// If it is a file we can directly use the helper function
+				// since its parent folder has already been created in a previous
+				// step of the 'recursion'
+				if err := copyFile(subpath, dstPath, info.Mode()); err != nil {
+					return err
+				}
+			}
+
+			return nil
+		},
+	); err != nil {
+		return fmt.Errorf("error while walking directory: %w", err)
+	}
+
+	return nil
 }

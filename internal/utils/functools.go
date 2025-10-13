@@ -4,6 +4,11 @@
 
 package utils
 
+import (
+	"fmt"
+	"reflect"
+)
+
 // Map applies the given function `fn` to each element of the input slice `in`,
 // returning a new slice of results.
 //
@@ -132,4 +137,27 @@ func And(a, b bool) bool {
 // Not returns the logical not of the input parameter
 func Not(a bool) bool {
 	return !a
+}
+
+func ErrorHandler(fn any, args ...any) {
+	v := reflect.ValueOf(fn)
+	if v.Kind() != reflect.Func {
+		panic("ErrorHandler: fn must be a function")
+	}
+
+	// Prepare arguments
+	in := make([]reflect.Value, len(args))
+	for i, a := range args {
+		in[i] = reflect.ValueOf(a)
+	}
+
+	// Call the function
+	out := v.Call(in)
+
+	// Check for a returned error
+	if len(out) == 1 && !out[0].IsNil() {
+		if err, ok := out[0].Interface().(error); ok {
+			fmt.Printf("error: %s\n", err.Error())
+		}
+	}
 }

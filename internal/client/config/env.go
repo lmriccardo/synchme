@@ -133,6 +133,14 @@ func LoadEnvironment() {
 
 	utils.INFO("Loading environment from ", synchme_env_file)
 	PrintEnvironment()
+
+	// If we didnt load the environment from the .synchme/.env file than copy the
+	// source file into the synchme folder
+	if load_result {
+		if err := utils.Copy(synchme_env_file, synchme_folder); err != nil {
+			utils.WARN("Error when copying the .env file: ", err)
+		}
+	}
 }
 
 // SetEnv tries to set an environment variable and fatal if any error

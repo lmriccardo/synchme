@@ -176,30 +176,34 @@ func GetDefaultConf() *ClientConf {
 // LoadConfiguration either reads or create a default configuration
 // and returns it as a `ClientConf` pointer.
 func LoadConfiguration(path string) *ClientConf {
+	client_conf := GetDefaultConf() // Generate a default conf
+
+	if !utils.Exist(client_conf.Path) {
+		utils.INFO("Loading default configuration into ", client_conf.Path)
+
+		// Write the conf into the default destination
+		flags := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
+		file, err := os.OpenFile(client_conf.Path, flags, 0777)
+		if err != nil {
+			utils.FATAL("Unable to open file ", client_conf.Path, ": ", err)
+		}
+
+		defer func() {
+			if err := file.Close(); err != nil {
+				utils.ERROR("Error when closing file: ", err)
+			}
+		}()
+
+		if err := toml.NewEncoder(file).Encode(*client_conf); err != nil {
+			utils.FATAL("Unable to encode the default configuration: ", err)
+		}
+	}
+
 	// If the path exists than we can read the configuration
 	if utils.Exist(path) && strings.HasSuffix(path, ".toml") {
-		return ReadConf(path)
-	}
-
-	client_conf := GetDefaultConf() // Generate a default conf
-	utils.WARN("Configuration path ", path, " does not exists!")
-	utils.INFO("Loading default configuration into ", client_conf.Path)
-
-	// Write the conf into the default destination
-	flags := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
-	file, err := os.OpenFile(client_conf.Path, flags, 0777)
-	if err != nil {
-		utils.FATAL("Unable to open file ", client_conf.Path, ": ", err)
-	}
-
-	defer func() {
-		if err := file.Close(); err != nil {
-			utils.ERROR("Error when closing file: ", err)
-		}
-	}()
-
-	if err := toml.NewEncoder(file).Encode(*client_conf); err != nil {
-		utils.FATAL("Unable to encode the default configuration: ", err)
+		client_conf = ReadConf(path)
+	} else {
+		utils.WARN("Configuration path ", path, " does not exists! Using default conf.")
 	}
 
 	// Set the synchme config environment variable to the new file
