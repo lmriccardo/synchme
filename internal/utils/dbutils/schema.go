@@ -3,7 +3,6 @@ package dbutils
 import (
 	"database/sql"
 	"fmt"
-	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -13,6 +12,8 @@ import (
 type Schema struct {
 	FilePath string            // In which .db or .sqlite file the schema is located
 	Tables   map[string]*Table // All tables of the schema
+	IsValid  bool              // If the schema is valid for any operation
+	IsBuilt  bool              // If the schema has been built
 	db       *sql.DB           // The connection with the Db
 }
 
@@ -21,15 +22,6 @@ type Schema struct {
 // being built, allowing for fluid chaining of configuration and table creation methods.
 type SchemaBuilder struct {
 	sch *Schema // The object schema
-}
-
-// SQLCreate creates the CREATE statement for each table in the schema
-func (s *Schema) SQLCreate() string {
-	var builder strings.Builder
-	for _, table := range s.Tables {
-		builder.WriteString(table.SQLCreate() + "\n")
-	}
-	return builder.String()
 }
 
 // Close closes the database and the Schema
@@ -59,6 +51,8 @@ func NewSchema(path string) (*Schema, *SchemaBuilder, error) {
 	schema := &Schema{
 		FilePath: path,
 		Tables:   make(map[string]*Table),
+		IsValid:  true,
+		IsBuilt:  false,
 		db:       db,
 	}
 
@@ -76,10 +70,11 @@ func (bld *SchemaBuilder) AddTable(tbl_name string) *TableBuilder {
 		Name:         tbl_name,
 		Columns:      []*column_t{},
 		ColumnsIndex: make(map[string]int),
+		sch:          bld.sch,
 	}
 
 	bld.sch.Tables[tbl_name] = table
-	return &TableBuilder{tbl: table, columnIndex: 0}
+	return &TableBuilder{tbl: table, columnIndex: 0, parent: bld}
 }
 
 // Build finalizes the schema definition by executing the SQL CREATE statements
@@ -90,10 +85,24 @@ func (bld *SchemaBuilder) AddTable(tbl_name string) *TableBuilder {
 // If any table creation fails, Build stops immediately and returns an error
 // describing which table failed and the underlying cause.
 func (bld *SchemaBuilder) Build() error {
+	// First validate the entire schema, if there are errors print them
+	// and exit immediately without building anything
+	if errs := bld.sch.Validate(); len(errs) > 0 {
+		for _, err := range errs {
+			fmt.Println(err)
+		}
+
+		bld.sch.IsValid = false
+		return fmt.Errorf("schema validation failed (%d tables had errors)", len(errs))
+	}
+
 	for _, tbl := range bld.sch.Tables {
+		fmt.Println(tbl.SQLCreate())
 		if _, err := bld.sch.db.Exec(tbl.SQLCreate()); err != nil {
 			return fmt.Errorf("creating table %s: %w", tbl.Name, err)
 		}
 	}
+
+	bld.sch.IsBuilt = true
 	return nil
 }

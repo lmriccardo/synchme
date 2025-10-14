@@ -21,7 +21,24 @@ func (d DataType) String() string {
 	case BLOB:
 		return "BLOB"
 	default:
-		return fmt.Sprintf("UNKNOWN(%d)", int(d))
+		return fmt.Sprintf("UNKNOWN DATA TYPE(%d)", int(d))
+	}
+}
+
+func (a ForeignKeyAction) String() string {
+	switch a {
+	case NO_ACTION:
+		return ""
+	case RESTRICT:
+		return "RESTRICT"
+	case SET_NULL:
+		return "SET_NULL"
+	case SET_DEFAULT:
+		return "SET_DEFAULT"
+	case CASCADE:
+		return "CASCADE"
+	default:
+		return fmt.Sprintf("UNKNOWN FK ACTION(%d)", int(a))
 	}
 }
 

@@ -44,3 +44,5 @@ coverage.out
 
 # Code And examples
 example/
+index.sql*
+index.db*
