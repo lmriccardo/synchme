@@ -1,6 +1,7 @@
 package dbutils
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -196,10 +197,24 @@ func (t *Table) checkFKAction(fk *foreignKey_t) (errs []error) {
 	return
 }
 
+// checkOnePK checks if the table has only one primary key
+func (t *Table) checkOnePK() error {
+	cols := utils.Filter(func(c *column_t) bool { return c.PrimaryKey }, t.Columns)
+	if len(cols) > 1 {
+		return errors.New("table can have only one primary key")
+	}
+	return nil
+}
+
 func (t *Table) Validate() (errs []error) {
 	// First validate all columns and collect all errors
 	for _, column := range t.Columns {
 		errs = append(errs, column.Validate()...)
+	}
+
+	// Check the uniqueness of the primary key columns
+	if err := t.checkOnePK(); err != nil {
+		errs = append(errs, err)
 	}
 
 	// Then validate the foreign keys and collect all errors

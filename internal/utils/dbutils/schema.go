@@ -1,6 +1,7 @@
 package dbutils
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 
@@ -15,6 +16,7 @@ type Schema struct {
 	IsValid  bool              // If the schema is valid for any operation
 	IsBuilt  bool              // If the schema has been built
 	db       *sql.DB           // The connection with the Db
+	ctx      context.Context   // The context for the DB transactions
 }
 
 // SchemaBuilder is a helper structure used to programmatically construct and manage
@@ -32,9 +34,18 @@ func (s *Schema) Close() error {
 	return nil
 }
 
+// Use returns a table belonging to the schema
+func (s *Schema) Use(name string) (*Table, error) {
+	table, ok := s.Tables[name]
+	if !ok {
+		return nil, fmt.Errorf("input table %q not in the schema", name)
+	}
+	return table, nil
+}
+
 // NewSchema creates an empty schema and returns both the schema
 // itself and the builder for filling the schema with tables
-func NewSchema(path string) (*Schema, *SchemaBuilder, error) {
+func NewSchema(path string, ctx context.Context) (*Schema, *SchemaBuilder, error) {
 	// Open the DB connection
 	db, err := sql.Open("sqlite3", path)
 	if err != nil {
@@ -54,6 +65,7 @@ func NewSchema(path string) (*Schema, *SchemaBuilder, error) {
 		IsValid:  true,
 		IsBuilt:  false,
 		db:       db,
+		ctx:      ctx,
 	}
 
 	return schema, &SchemaBuilder{sch: schema}, nil
@@ -96,13 +108,38 @@ func (bld *SchemaBuilder) Build() error {
 		return fmt.Errorf("schema validation failed (%d tables had errors)", len(errs))
 	}
 
+	// Use transactions to detect any error and rollback to a previous consistent state
+	tx, err := bld.sch.db.BeginTx(bld.sch.ctx, &sql.TxOptions{})
+	if err != nil {
+		return err
+	}
+
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	fk_enforced := false
+
+	// Now use the created transaction to build all tables
 	for _, tbl := range bld.sch.Tables {
-		fmt.Println(tbl.SQLCreate())
-		if _, err := bld.sch.db.Exec(tbl.SQLCreate()); err != nil {
+		// Check for any foreign key and ensure they are active at the start
+		if len(tbl.ForeignKeys) > 0 && !fk_enforced {
+			_, _ = tx.ExecContext(bld.sch.ctx, "PRAGMA foreign_keys = ON;")
+			fk_enforced = true
+		}
+
+		if _, err = tx.ExecContext(bld.sch.ctx, tbl.SQLCreate()); err != nil {
+			_ = tx.Rollback() // Abort all transactions
 			return fmt.Errorf("creating table %s: %w", tbl.Name, err)
 		}
 	}
 
-	bld.sch.IsBuilt = true
-	return nil
+	// Commit the transactions and set the built flag to true
+	if err = tx.Commit(); err == nil {
+		bld.sch.IsBuilt = true
+	}
+
+	return err
 }

@@ -49,7 +49,7 @@ func (t *Table) String() string {
 		return fmt.Sprintf("Table '%s' has no columns defined.\n", t.Name)
 	}
 
-	headers := []string{"Column Name", "Type", "Primary Key", "Not Null", "Default"}
+	headers := []string{"Column Name", "Type", "Primary Key", "Not Null", "Unique", "Default"}
 	rows := make([][]string, 0, len(t.Columns)+1)
 	rows = append(rows, headers)
 
@@ -63,6 +63,7 @@ func (t *Table) String() string {
 			col.Type.String(),
 			fmt.Sprintf("%v", col.PrimaryKey),
 			fmt.Sprintf("%v", col.NotNull),
+			fmt.Sprintf("%v", col.Unique),
 			def,
 		})
 	}

@@ -164,3 +164,46 @@ func (tbld *TableBuilder) CompositeForeignKey(name []string, ref_table string, r
 
 	return tbld
 }
+
+// AutoID creates an auto-incrementing INTEGER 'id' column and sets it as the primary key.
+// This method is a convenience wrapper for adding the most common type of
+// surrogate primary key to a table, ensuring unique and non-null identification
+// for every row.
+func (tbld *TableBuilder) AutoID() *TableBuilder {
+	// Create a deafult INTEGER id column as primary key
+	return tbld.Column("id", INTEGER, true, false, nil).
+		PrimaryKey("id", true)
+}
+
+// Text creates a TEXT column named with the input value which is NOT NULL,
+// NOT UNIQUE and does not have any default value.
+func (tbld *TableBuilder) Text(name string) *TableBuilder {
+	return tbld.Column(name, TEXT, true, false, nil)
+}
+
+// Text creates a TEXT column named with the input value which is NOT NULL,
+// NOT UNIQUE and has the input default value.
+func (tbld *TableBuilder) TextWithDefault(name, def string) *TableBuilder {
+	return tbld.Column(name, TEXT, true, false, def)
+}
+
+// IntegerWithDefault creates an INTEGER column named with the input value which
+// is NOT NULL, NOT UNIQUE and has the input default value
+func (tbld *TableBuilder) IntegerWithDefault(name string, def int) *TableBuilder {
+	return tbld.Column(name, INTEGER, true, false, def)
+}
+
+// IntegerWithDefault creates an INTEGER column named with the input value which
+// is NOT NULL, NOT UNIQUE and does not have any default value
+func (tbld *TableBuilder) Integer(name string) *TableBuilder {
+	return tbld.Column(name, INTEGER, true, false, nil)
+}
+
+// Blob creates a BLOB column named with the input value which can be NULL,
+// it is NOT UNIQUE, and does not have any default value
+func (tbld *TableBuilder) Blob(name string) *TableBuilder {
+	return tbld.Column(name, BLOB, false, false, nil)
+}
+
+// TODO: Adds timestamp utility
+// TODO: We can also add triggers to the Table
