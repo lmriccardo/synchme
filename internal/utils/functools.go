@@ -166,3 +166,12 @@ func ErrorHandler(fn any, args ...any) {
 		}
 	}
 }
+
+// GetMapKeys returns a new slice containing all the keys from the input map.
+func MapKeys[T comparable](m map[T]any) []T {
+	keys := make([]T, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	return keys
+}

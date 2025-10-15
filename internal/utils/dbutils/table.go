@@ -1,49 +1,6 @@
 package dbutils
 
-import (
-	"fmt"
-	"reflect"
-)
-
-type DataType int
-type ForeignKeyAction int
-
-// SQLite provides five primary data types such as NULL,
-// INTEGER, REAL, TEXT, and BLOB each of them is used
-// for distinct purposes.
-const (
-	NULL DataType = iota
-	INTEGER
-	REAL
-	TEXT
-	BLOB
-)
-
-const (
-	NO_ACTION ForeignKeyAction = iota
-	RESTRICT
-	SET_NULL
-	SET_DEFAULT
-	CASCADE
-)
-
-// Maps Go type into SQL TYPES
-var TYPE_MAP = map[reflect.Kind]DataType{
-	reflect.Bool:    INTEGER,
-	reflect.Int:     INTEGER,
-	reflect.Int8:    INTEGER,
-	reflect.Int16:   INTEGER,
-	reflect.Int32:   INTEGER,
-	reflect.Int64:   INTEGER,
-	reflect.Uint:    INTEGER,
-	reflect.Uint8:   INTEGER,
-	reflect.Uint16:  INTEGER,
-	reflect.Uint32:  INTEGER,
-	reflect.Uint64:  INTEGER,
-	reflect.Float32: REAL,
-	reflect.Float64: REAL,
-	reflect.String:  TEXT,
-}
+import "fmt"
 
 // column_t represents the schema definition for a single database column.
 type column_t struct {
@@ -207,3 +164,22 @@ func (tbld *TableBuilder) Blob(name string) *TableBuilder {
 
 // TODO: Adds timestamp utility
 // TODO: We can also add triggers to the Table
+
+// Update initializes and returns a new UpdateBuilder instance for constructing
+// an SQL UPDATE statement against the associated table.
+func (t *Table) Update() *UpdateBuilder {
+	builder := &UpdateBuilder{
+		Columns:        make(map[string]any),
+		Parameters:     []string{},
+		table:          t,
+		where_clause_t: where_clause_t{},
+		range_clause_t: range_clause_t{
+			Order: make(map[string]OrderByType),
+		},
+	}
+
+	builder.where_clause_t.parent = builder
+	builder.range_clause_t.parent = builder
+
+	return builder
+}

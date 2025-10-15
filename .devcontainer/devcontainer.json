@@ -18,7 +18,6 @@
       "extensions": [
         "golang.Go",
         "ms-azuretools.vscode-docker",
-        "eamodio.gitlens",
         "Postman.postman-for-vscode",
         "vivaxy.vscode-conventional-commits",
         "mhutchie.git-graph",

@@ -42,6 +42,30 @@ func (a ForeignKeyAction) String() string {
 	}
 }
 
+func (w WhereOpType) String() string {
+	switch w {
+	case AND:
+		return "AND"
+	case OR:
+		return "OR"
+	case NOT:
+		return "NOT"
+	default:
+		return fmt.Sprintf("UNKNOWN WHERE OP TYPE(%d)", int(w))
+	}
+}
+
+func (o OrderByType) String() string {
+	switch o {
+	case ASC:
+		return "ASC"
+	case DESC:
+		return "DESC"
+	default:
+		return fmt.Sprintf("UNKNOWN ORDER_BY TYPE(%d)", int(o))
+	}
+}
+
 // String returns a formatted ASCII table describing the table schema.
 // It includes the column name, type, and key/not-null/default attributes.
 func (t *Table) String() string {

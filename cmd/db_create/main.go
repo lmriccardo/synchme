@@ -33,5 +33,30 @@ func main() {
 		return
 	}
 
-	fmt.Println(sch.String())
+	tbl, err := sch.Use("files")
+	if err != nil {
+		fmt.Println("Error when selecting the table: ", err)
+		return
+	}
+
+	update := tbl.Update().
+		Set("name").
+		SetValue("age", 10).
+		Where().
+		Cond("age > 10").
+		Or().
+		Cond("age < 5").
+		Not("other_table.id != 11").
+		EndGroup().
+		EndWhere().
+		Limit(10).
+		OrderBy("age", dbutils.ASC)
+
+	str, err := update.Build()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	fmt.Println(str)
 }

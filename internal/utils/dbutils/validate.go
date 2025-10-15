@@ -1,9 +1,11 @@
 package dbutils
 
 import (
+	"container/list"
 	"errors"
 	"fmt"
 	"reflect"
+	"regexp"
 	"strings"
 
 	"github.com/lmriccardo/synchme/internal/utils"
@@ -299,4 +301,106 @@ func (s *Schema) Validate() (errs []error) {
 	}
 
 	return
+}
+
+// validateConditionColumns checks if a raw SQL condition string contains valid
+// column names. It uses a provided regular expression pattern to identify column
+// references within the condition.
+func validateConditionColumns(condition string, t *Table,
+	pattern *regexp.Regexp) (errs []error) {
+	// Apply the input pattern and check for any columns in the condition
+	if matches := pattern.FindStringSubmatch(condition); len(matches) > 1 {
+		// Extract and normalize column name
+		parts := strings.Split(matches[1], ".")
+		col_name := strings.ToLower(parts[len(parts)-1])
+
+		// If we have found columns in the format table.col_name
+		// than we can also check whether that table acutally
+		// exists in the schema
+		if len(parts) > 1 {
+			table_name := strings.ToLower(parts[0])
+			if _, ok := t.sch.Tables[table_name]; !ok {
+				errs = append(errs, fmt.Errorf(
+					"in condition %q ref. column %q, the table %q does not exists",
+					condition, matches[1], table_name,
+				))
+				return
+			}
+		}
+
+		// Check if the column exists in the table
+		if _, ok := t.ColumnsIndex[col_name]; !ok {
+			errs = append(errs, fmt.Errorf(
+				"column %q in condition %q not a table column",
+				col_name, condition,
+			))
+		}
+	} else {
+		errs = append(errs, fmt.Errorf(
+			"cannot parse column from condition: %q",
+			condition))
+	}
+
+	return
+}
+
+// ValidateColumns validates all the columns used in the WHERE operation
+// and returns a list of errors for each column
+func (w *where_clause_t) ValidateColumns(t *Table) (errs []error) {
+	// Create the column pattern for finding columns in conditions
+	pattern := regexp.MustCompile(
+		`\b([a-zA-Z_][a-zA-Z0-9_\.]*)\b\s*` +
+			`(?:=|!=|<>|<|>|<=|>=|LIKE|IN|IS\s+(?:NOT\s+)?NULL|BETWEEN)`,
+	)
+
+	// Create a new double linked-list
+	queue := list.New()
+	queue.PushBack(w.root)
+
+	// Use a BFS to collect all conditions from the AST
+	for queue.Len() > 0 {
+		// Get the first element and remove it from the list
+		element := queue.Front()
+		queue.Remove(element)
+		group := element.Value.(*condition_group_t)
+
+		// Extract columns referenced in each condition and validate them
+		for _, condition := range group.Conds {
+			errs = append(errs, validateConditionColumns(condition, t, pattern)...)
+		}
+
+		for _, subgroup := range group.SubGroups {
+			queue.PushBack(subgroup)
+		}
+	}
+
+	return
+}
+
+// Validate validates the UPDATE SQL Query
+func (u *UpdateBuilder) Validate() error {
+	// Initialize the list of all errors detected during validation
+	errors := []error{}
+
+	// First we would like to check if columns in each suboperation
+	// exists in the actual table.
+
+	// First check columns used for the SET clause
+	for _, col := range utils.MapKeys(u.Columns) {
+		if _, ok := u.table.ColumnsIndex[col]; !ok {
+			errors = append(errors, fmt.Errorf(
+				"column used for SET %q not a table column", col))
+		}
+	}
+
+	// Check WHERE clause
+	errors = append(errors, u.ValidateColumns(u.table)...)
+
+	if len(errors) == 0 {
+		return nil
+	}
+
+	// Format the error string and return all errors
+	h := func(e error) string { return e.Error() }
+	return fmt.Errorf("%s", strings.Join(utils.Map(h, errors), "\n"))
 }
