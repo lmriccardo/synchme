@@ -1,6 +1,9 @@
 package dbutils
 
-import "reflect"
+import (
+	"database/sql"
+	"reflect"
+)
 
 type DataType int
 type ForeignKeyAction int
@@ -57,3 +60,11 @@ const (
 	ASC OrderByType = iota
 	DESC
 )
+
+type TypeValidatorFunc func(p map[string]any) (bool, []error)
+
+type Statement struct {
+	stmt          *sql.Stmt        // The actual sql prepared statement
+	positionalMap map[string][]int // A mapping from arguments to position
+	nofArgs       int              // Total number of arguments
+}

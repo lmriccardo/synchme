@@ -1,6 +1,10 @@
 package dbutils
 
-import "fmt"
+import (
+	"fmt"
+
+	_ "github.com/mattn/go-sqlite3"
+)
 
 // column_t represents the schema definition for a single database column.
 type column_t struct {
@@ -173,6 +177,7 @@ func (t *Table) Update() *UpdateBuilder {
 		Parameters:     []string{},
 		table:          t,
 		where_clause_t: where_clause_t{},
+		preparator_t:   preparator_t{table: t},
 		range_clause_t: range_clause_t{
 			Order: make(map[string]OrderByType),
 		},

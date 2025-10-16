@@ -404,3 +404,52 @@ func (u *UpdateBuilder) Validate() error {
 	h := func(e error) string { return e.Error() }
 	return fmt.Errorf("%s", strings.Join(utils.Map(h, errors), "\n"))
 }
+
+func (s *SelectBuilder) Validate() error {
+	return nil
+}
+
+// ValidateTypes takes as input a mapping between parameters and assigned
+// values and check if the assigned value types correspond to the releated
+// column types
+func ValidateTypes(columns map[string]string, params map[string]any,
+	t *Table) (bool, []error) {
+
+	errors := []error{}
+	for name, value := range params {
+		column, ok := columns[name]
+
+		// Check if the parameter is in the mapping
+		if !ok {
+			errors = append(errors, fmt.Errorf(
+				"parameter %q does not match any column in table %q",
+				name, t.Name,
+			))
+			continue
+		}
+
+		// If the parameter exists in the map, check using reflection
+		// the value type is exactly the one specified in the table
+		value_t := reflect.TypeOf(value).Kind()
+		sql_type, ok := TYPE_MAP[value_t]
+		if !ok {
+			errors = append(errors, fmt.Errorf(
+				"value %v associated with parameter %q does not match "+
+					"any SQL valid type association: %s",
+				value, name, value_t.String(),
+			))
+			continue
+		}
+
+		target := t.Columns[t.ColumnsIndex[column]].Type
+		if target != sql_type {
+			errors = append(errors, fmt.Errorf(
+				"value %v associated with parameter %q does not match "+
+					"the expected type for column %q: %s != %s",
+				value, name, column, sql_type.String(), target.String(),
+			))
+		}
+	}
+
+	return len(errors) == 0, errors
+}

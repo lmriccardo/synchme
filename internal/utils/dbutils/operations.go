@@ -3,13 +3,16 @@ package dbutils
 import (
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/lmriccardo/synchme/internal/utils"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 type Buildable interface {
 	Validate() error        // Validates the buildable before building it
 	Build() (string, error) // Returns the string query of the operation
+	Prepare() (*Statement, TypeValidatorFunc)
 }
 
 type Rangeable interface {
@@ -53,6 +56,11 @@ type range_clause_t struct {
 	parent Rangeable // The parent of this clause
 }
 
+type preparator_t struct {
+	sql   string // The SQL string produced by a previous Build
+	table *Table // The table subject to the current operation
+}
+
 // UpdateBuilder is a fluent interface structure used to construct an SQL UPDATE statement.
 // It tracks the columns and values to be set, and embeds structures for defining
 // the WHERE clause and any limiting/ordering clauses.
@@ -64,6 +72,7 @@ type UpdateBuilder struct {
 
 	where_clause_t // Embedded structure for building the WHERE clause.
 	range_clause_t // Embedded structure for building the ORDER BY, LIMIT and OFFSET clauses.
+	preparator_t   // Embedded structure for preparing SQL statements
 }
 
 type SelectBuilder struct {
@@ -71,6 +80,7 @@ type SelectBuilder struct {
 
 	where_clause_t // Embedded structure for building the WHERE clause.
 	range_clause_t // Embedded structure for building the ORDER BY, LIMIT and OFFSET clauses.
+	preparator_t   // Embedded structure for preparing SQL statements
 }
 
 // And returns an new condition group for chaining AND conditions
@@ -103,16 +113,13 @@ func (c *condition_group_t) NotOr() *condition_group_t {
 // It can parse named parameters used in the expression in the form :<param_name>.
 func (c *condition_group_t) Cond(expr string) *condition_group_t {
 	// First we must compile the regex to find the param ids
-	param_ids_re := regexp.MustCompile(`:([a-zA-Z_][a-zA-Z0-9_])`)
+	param_ids_re := regexp.MustCompile(`:([a-zA-Z_][a-zA-Z0-9_]*)`)
 
 	// Find all substrings that matches the pattern
 	matches := param_ids_re.FindAllStringSubmatch(expr, -1)
 	ids := utils.Map(func(ss []string) string { return ss[1] }, matches)
 	c.Parameters = append(c.Parameters, ids...)
-
-	// Then we need to replace all the ids with the question mark (?)
-	sql_expr := param_ids_re.ReplaceAllString(expr, "?")
-	c.Conds = append(c.Conds, sql_expr)
+	c.Conds = append(c.Conds, expr)
 
 	return c
 }
@@ -193,6 +200,59 @@ func (r *range_clause_t) Offset(value int) Rangeable {
 	return r.parent
 }
 
+// Prepare analyzes the embedded SQL string (`p.sql`) to identify named parameters
+// and the database columns they reference. It prepares the underlying SQL statement
+// and constructs a mapping from named parameters to their positional indices
+// within the prepared statement.
+func (p *preparator_t) Prepare() (*Statement, TypeValidatorFunc) {
+	// First thing, given the SQL string it shall extract a mapping between
+	// parameters and referenced columns
+	pattern := regexp.MustCompile(
+		`\b([a-zA-Z_][a-zA-Z0-9_\.]*)\b\s*` +
+			`(?:=|!=|<>|<|>|<=|>=|LIKE|IN|IS\s+(?:NOT\s+)?NULL|BETWEEN)\s*` +
+			`(:[a-zA-Z_][a-zA-Z0-9_]*|\S+)`,
+	)
+
+	// Initialize the statement object to be returned
+	statement := &Statement{positionalMap: map[string][]int{}}
+	columns := make(map[string]string)
+	matches := pattern.FindAllStringSubmatch(p.sql, -1)
+	sql_query := p.sql
+
+	for _, match := range matches {
+		// Take the column name and the parameter name
+		col_name := match[0]
+		par_name := match[2]
+
+		if after, ok := strings.CutPrefix(par_name, ":"); ok {
+			// Adds to the list of all positions releated to the current
+			// parameter, the last possible position
+			statement.positionalMap[after] = append(
+				statement.positionalMap[after],
+				statement.nofArgs,
+			)
+
+			statement.nofArgs++
+
+			// Add the mapping parameter to column name
+			columns[after] = col_name
+			sql_query = strings.ReplaceAll(sql_query, par_name, "?")
+		}
+	}
+
+	fmt.Println(sql_query)
+	stmt, err := p.table.sch.db.Prepare(sql_query)
+	if err != nil {
+		fmt.Println("Error when preparing the statement: ", err)
+		return nil, nil
+	}
+
+	statement.stmt = stmt
+	return statement, func(ps map[string]any) (bool, []error) {
+		return ValidateTypes(columns, ps, p.table)
+	}
+}
+
 // Set registers one or more column names to be included in the SET clause of the
 // UPDATE statement. Each column is internally mapped to a placeholder ('?') for a
 // prepared statement, and its name is added to the list of expected parameters for
@@ -223,6 +283,14 @@ func (u *UpdateBuilder) SetValue(name string, value any) *UpdateBuilder {
 	return u
 }
 
-func (s *SelectBuilder) Validate() error {
-	return nil
+func (u *UpdateBuilder) Prepare() (*Statement, TypeValidatorFunc) {
+	// First build the SQL query containing positional arguments ids
+	// and check that there are no errors during build stage
+	if sql, err := u.Build(); err != nil {
+		fmt.Println(err)
+		return nil, nil
+	} else {
+		u.sql = sql
+		return u.preparator_t.Prepare()
+	}
 }

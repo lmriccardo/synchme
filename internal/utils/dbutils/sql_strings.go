@@ -142,7 +142,7 @@ func (w *where_clause_t) ToSQLString() string {
 	// Check that there is at least one condition
 	if len(w.root.Conds) > 0 || len(w.root.SubGroups) > 0 {
 		condition_s := w.root.ToSQLString()
-		builder.WriteString(fmt.Sprintf(" WHERE %s", condition_s))
+		builder.WriteString(fmt.Sprintf("WHERE %s", condition_s))
 	}
 
 	return builder.String()
@@ -155,22 +155,23 @@ func (r *range_clause_t) ToSQLString() string {
 
 	// Adds ORDER BY if there are entries in the map
 	if len(r.Order) > 0 {
-		builder.WriteString(" ORDER BY ")
+		builder.WriteString("ORDER BY ")
 		orders := []string{}
 		for name, direction := range r.Order {
 			orders = append(orders, fmt.Sprintf("%s %s", name, direction))
 		}
 		builder.WriteString(strings.Join(orders, ", "))
+		builder.WriteString("\n")
 	}
 
 	// Adds LIMIT if it has been set
 	if r.LimitSet {
-		builder.WriteString(fmt.Sprintf(" LIMIT %d", r.LimitValue))
+		builder.WriteString(fmt.Sprintf("LIMIT %d\n", r.LimitValue))
 	}
 
 	// Adds OFFSET if it has been set
 	if r.OffsetSet {
-		builder.WriteString(fmt.Sprintf(" OFFSET %d", r.OffsetValue))
+		builder.WriteString(fmt.Sprintf("OFFSET %d", r.OffsetValue))
 	}
 
 	return builder.String()
@@ -182,6 +183,7 @@ func (r *range_clause_t) ToSQLString() string {
 func SqlLiteral(value any) string {
 	switch x := value.(type) {
 	case string:
+		// Here we need to correctly format string aroung quotes
 		return fmt.Sprintf("'%s'", strings.ReplaceAll(x, "'", "''"))
 	case bool:
 		if x {
@@ -202,24 +204,31 @@ func (u *UpdateBuilder) Build() (string, error) {
 	}
 
 	var builder strings.Builder
-	builder.WriteString(fmt.Sprintf("UPDATE %s", u.table.Name))
+	builder.WriteString(fmt.Sprintf("UPDATE %s\n", u.table.Name))
 
 	// Write the SET values in the string builder
 	sets := []string{}
 	for name, value := range u.Columns {
 		// I need to map values to correct formatting for a
-		// runnable SQL query. this can be done using reflection
-		sets = append(sets, fmt.Sprintf("%s = %s", name, SqlLiteral(value)))
+		// a partial valid SQL query to be prepare in a future moment
+		if value != "?" {
+			value = SqlLiteral(value)
+		} else {
+			value = fmt.Sprintf(":%s", name)
+		}
+
+		sets = append(sets, fmt.Sprintf("%s = %s", name, value))
 	}
 
 	if len(sets) > 0 {
-		builder.WriteString(fmt.Sprintf(" SET %s",
+		builder.WriteString(fmt.Sprintf("SET %s\n",
 			strings.Join(sets, ", ")))
 	}
 
 	// Now put the WHERE clause
 	if sql := u.where_clause_t.ToSQLString(); sql != "" {
 		builder.WriteString(sql)
+		builder.WriteString("\n")
 	}
 
 	// Then the rage limit clause (ORDER BY, LIMIT, OFFSET)

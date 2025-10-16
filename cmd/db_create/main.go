@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/lmriccardo/synchme/internal/utils/dbutils"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func main() {
@@ -43,14 +44,12 @@ func main() {
 		Set("name").
 		SetValue("age", 10).
 		Where().
-		Cond("age > 10").
+		Cond("age > :age1").
 		Or().
-		Cond("age < 5").
-		Not("other_table.id != 11").
+		Cond("age < :age1").
+		Not("id != 11").
 		EndGroup().
-		EndWhere().
-		Limit(10).
-		OrderBy("age", dbutils.ASC)
+		EndWhere().Limit(10)
 
 	str, err := update.Build()
 	if err != nil {
@@ -59,4 +58,11 @@ func main() {
 	}
 
 	fmt.Println(str)
+
+	stmt, _ := update.Prepare()
+	if stmt == nil {
+		return
+	}
+
+	fmt.Println(stmt)
 }
