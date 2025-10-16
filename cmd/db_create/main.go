@@ -4,15 +4,31 @@ import (
 	"context"
 	"fmt"
 
+	_ "modernc.org/sqlite"
+
 	"github.com/lmriccardo/synchme/internal/utils/dbutils"
-	_ "github.com/mattn/go-sqlite3"
 )
+
+func PrintOperation(b dbutils.Buildable) {
+	_, err := b.Build()
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	stmt, _ := b.Prepare()
+	if stmt == nil {
+		return
+	}
+
+	fmt.Println(stmt)
+}
 
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	sch, builder, err := dbutils.NewSchema("index.sqlite", ctx)
+	sch, builder, err := dbutils.NewSchema("sqlite", "index.sqlite", ctx)
 	if err != nil {
 		fmt.Println("Error when creating the schema: ", err)
 		return
@@ -44,25 +60,17 @@ func main() {
 		Set("name").
 		SetValue("age", 10).
 		Where().
-		Cond("age > :age1").
+		Cond("age > :min_age1").
 		Or().
-		Cond("age < :age1").
-		Not("id != 11").
+		Cond("age < :max_age1").
+		Not("other_table.id != 11").
 		EndGroup().
-		EndWhere().Limit(10)
+		EndWhere().
+		OrderBy("name", dbutils.ASC).
+		Limit(10)
 
-	str, err := update.Build()
-	if err != nil {
-		fmt.Println(err)
-		return
-	}
+	PrintOperation(update)
 
-	fmt.Println(str)
-
-	stmt, _ := update.Prepare()
-	if stmt == nil {
-		return
-	}
-
-	fmt.Println(stmt)
+	insert := tbl.Insert().Columns("name").ColumnWithValue("age", 10)
+	PrintOperation(insert)
 }

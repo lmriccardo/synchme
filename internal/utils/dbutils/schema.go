@@ -4,8 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-
-	_ "github.com/mattn/go-sqlite3"
+	"strings"
 )
 
 // Schema represents the entire structure of an SQLite database.
@@ -13,10 +12,12 @@ import (
 type Schema struct {
 	FilePath string            // In which .db or .sqlite file the schema is located
 	Tables   map[string]*Table // All tables of the schema
-	IsValid  bool              // If the schema is valid for any operation
-	IsBuilt  bool              // If the schema has been built
-	db       *sql.DB           // The connection with the Db
-	ctx      context.Context   // The context for the DB transactions
+
+	valid       bool            // If the schema is valid for any operation
+	built       bool            // If the schema has been built
+	db          *sql.DB         // The connection with the Db
+	ctx         context.Context // The context for the DB transactions
+	placeholder string          // The placeholder style
 }
 
 // SchemaBuilder is a helper structure used to programmatically construct and manage
@@ -45,9 +46,9 @@ func (s *Schema) Use(name string) (*Table, error) {
 
 // NewSchema creates an empty schema and returns both the schema
 // itself and the builder for filling the schema with tables
-func NewSchema(path string, ctx context.Context) (*Schema, *SchemaBuilder, error) {
+func NewSchema(driver, path string, ctx context.Context) (*Schema, *SchemaBuilder, error) {
 	// Open the DB connection
-	db, err := sql.Open("sqlite3", path)
+	db, err := sql.Open(driver, path)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -58,14 +59,21 @@ func NewSchema(path string, ctx context.Context) (*Schema, *SchemaBuilder, error
 		return nil, nil, err
 	}
 
+	// Check if the driver belongs to the mapping otherwise nil
+	if _, ok := PLACEHOLDER[driver]; !ok {
+		_ = db.Close()
+		return nil, nil, fmt.Errorf("unknown driver: %s", driver)
+	}
+
 	// Create the schema
 	schema := &Schema{
-		FilePath: path,
-		Tables:   make(map[string]*Table),
-		IsValid:  true,
-		IsBuilt:  false,
-		db:       db,
-		ctx:      ctx,
+		FilePath:    path,
+		Tables:      make(map[string]*Table),
+		valid:       true,
+		built:       false,
+		db:          db,
+		ctx:         ctx,
+		placeholder: PLACEHOLDER[driver],
 	}
 
 	return schema, &SchemaBuilder{sch: schema}, nil
@@ -104,7 +112,7 @@ func (bld *SchemaBuilder) Build() error {
 			fmt.Println(err)
 		}
 
-		bld.sch.IsValid = false
+		bld.sch.valid = false
 		return fmt.Errorf("schema validation failed (%d tables had errors)", len(errs))
 	}
 
@@ -138,8 +146,69 @@ func (bld *SchemaBuilder) Build() error {
 
 	// Commit the transactions and set the built flag to true
 	if err = tx.Commit(); err == nil {
-		bld.sch.IsBuilt = true
+		bld.sch.built = true
 	}
 
 	return err
+}
+
+// Validate validates the entire schema and returns a slice of errors
+func (s *Schema) Validate() (errs []error) {
+	for _, table := range s.Tables {
+		if table_errs := table.Validate(); len(table_errs) > 0 {
+			for _, err := range table_errs {
+				fmt.Println(err)
+			}
+
+			errs = append(errs, fmt.Errorf(
+				"validation failed for table %q", table.Name))
+		}
+	}
+
+	return
+}
+
+// SQLCreate creates the CREATE statement for each table in the schema
+func (s *Schema) SQLCreate() string {
+	var builder strings.Builder
+	for _, table := range s.Tables {
+		builder.WriteString(table.SQLCreate() + "\n")
+	}
+	return builder.String()
+}
+
+// String returns a human-readable representation of the schema,
+// displaying all tables and their column structures using
+// Unicode box-drawing tables.
+func (s *Schema) String() string {
+	var sb strings.Builder
+
+	// Print header
+	sb.WriteString(fmt.Sprintf("Schema: %s\n\n", s.FilePath))
+
+	if len(s.Tables) == 0 {
+		sb.WriteString("(no tables defined)\n")
+		return sb.String()
+	}
+
+	// Print all tables
+	for _, tbl := range s.Tables {
+		if tbl == nil {
+			continue
+		}
+		sb.WriteString(tbl.String())
+		sb.WriteString("\n")
+	}
+
+	return sb.String()
+}
+
+// GetPlaceholder returns the dialect-specific placeholder for a given argument index.
+func (s *Schema) GetPlaceholder(index int) string {
+	pl := s.placeholder
+	if pl == "?" {
+		return pl
+	}
+
+	return fmt.Sprintf(pl, index)
 }

@@ -63,5 +63,5 @@ RUN PB_REL="https://github.com/protocolbuffers/protobuf/releases" \
     && rm /tmp/protoc.zip
 
 RUN go mod download github.com/google/uuid@v1.6.0
-RUN go mod download github.com/mattn/go-sqlite3@v1.14.32
+RUN go mod download modernc.org/sqlite@v1.39.1
 RUN go mod download github.com/joho/godotenv@v1.5.1
