@@ -23,26 +23,6 @@ type condition_group_t struct {
 	where  *where_clause_t    // Parent where clause (only for the root group)
 }
 
-// whereClause_t encapsulates the entire WHERE clause structure for a
-// database operation. It also holds a reference to the parent database
-// operation to allow operation chaining fluently.
-type where_clause_t struct {
-	root   *condition_group_t // The top-level condition group
-	parent Rangeable          // The parent of the where clause
-}
-
-// range_clause_t encapsulates the SQL clauses used to define the order and extent
-// (i.e., the range) of the result set, specifically ORDER BY, LIMIT, and OFFSET.
-type range_clause_t struct {
-	order       map[string]OrderByType // Maps columns to order direction
-	limiteValue int                    // The value with which limiting the selection
-	limitSet    bool                   // If the limit value has been set
-	offsetValue int                    // Values from which to start selecting
-	offsetSet   bool                   // If the offset value has been set
-
-	parent Rangeable // The parent of this clause
-}
-
 // And returns an new condition group for chaining AND conditions
 func (c *condition_group_t) And() *condition_group_t {
 	return &condition_group_t{op: AND, parent: c}
@@ -110,6 +90,32 @@ func (c *condition_group_t) EndWhere() Rangeable {
 	return c.where.End()
 }
 
+// ToSQLString creates the SQL string releated to this condition group
+func (c *condition_group_t) ToSQLString() string {
+	var builder strings.Builder
+	op_str := fmt.Sprintf(" %s ", c.op.String())
+	conditions := c.conds
+	conditions = append(conditions,
+		utils.Map(func(c *condition_group_t) string {
+			return c.ToSQLString()
+		}, c.subGroups)...,
+	)
+
+	conditions_s := fmt.Sprintf("(%s)", strings.Join(
+		conditions, op_str))
+
+	builder.WriteString(conditions_s)
+	return builder.String()
+}
+
+// whereClause_t encapsulates the entire WHERE clause structure for a
+// database operation. It also holds a reference to the parent database
+// operation to allow operation chaining fluently.
+type where_clause_t struct {
+	root   *condition_group_t // The top-level condition group
+	parent Rangeable          // The parent of the where clause
+}
+
 // Where initializes and returns the top-level ConditionGroup for building
 // the WHERE clause. If the clause has not been started, it initializes it
 // with a default logical operator (usually AND). This method is used to begin
@@ -130,54 +136,6 @@ func (w *where_clause_t) End() Rangeable {
 	return w.parent
 }
 
-// OrderBy sets the sorting direction (ascending or descending) for a
-// specified column. It ensures that a column is added to the ORDER BY
-// list only once.
-func (r *range_clause_t) OrderBy(name string, dir OrderByType) Rangeable {
-	// Check if the name does not already exists in the map and set it
-	if _, ok := r.order[name]; !ok {
-		r.order[name] = dir
-	}
-
-	return r.parent
-}
-
-// Limit sets the maximum number of rows to be returned by the query.
-// The value is overwritten on every call to this method.
-func (r *range_clause_t) Limit(value int) Rangeable {
-	// Value are overwritten every time the operation is performed
-	r.limiteValue = value
-	r.limitSet = true
-	return r.parent
-}
-
-// Offset sets the number of rows to skip before starting to return results.
-// The value is overwritten on every call to this method.
-func (r *range_clause_t) Offset(value int) Rangeable {
-	// Value are overwritten every time the operation is performed
-	r.offsetValue = value
-	r.offsetSet = true
-	return r.parent
-}
-
-// ToSQLString creates the SQL string releated to this condition group
-func (c *condition_group_t) ToSQLString() string {
-	var builder strings.Builder
-	op_str := fmt.Sprintf(" %s ", c.op.String())
-	conditions := c.conds
-	conditions = append(conditions,
-		utils.Map(func(c *condition_group_t) string {
-			return c.ToSQLString()
-		}, c.subGroups)...,
-	)
-
-	conditions_s := fmt.Sprintf("(%s)", strings.Join(
-		conditions, op_str))
-
-	builder.WriteString(conditions_s)
-	return builder.String()
-}
-
 // ToSQLString creates the SQL string releated to WHERE clause
 func (w *where_clause_t) ToSQLString() string {
 	var builder strings.Builder
@@ -186,35 +144,6 @@ func (w *where_clause_t) ToSQLString() string {
 	if len(w.root.conds) > 0 || len(w.root.subGroups) > 0 {
 		condition_s := w.root.ToSQLString()
 		builder.WriteString(fmt.Sprintf("WHERE %s", condition_s))
-	}
-
-	return builder.String()
-}
-
-// ToSQLString creates the SQL string releated to ORDER BY, LIMIT
-// and OFFSET clauses
-func (r *range_clause_t) ToSQLString() string {
-	var builder strings.Builder
-
-	// Adds ORDER BY if there are entries in the map
-	if len(r.order) > 0 {
-		builder.WriteString("ORDER BY ")
-		orders := []string{}
-		for name, direction := range r.order {
-			orders = append(orders, fmt.Sprintf("%s %s", name, direction))
-		}
-		builder.WriteString(strings.Join(orders, ", "))
-		builder.WriteString("\n")
-	}
-
-	// Adds LIMIT if it has been set
-	if r.limitSet {
-		builder.WriteString(fmt.Sprintf("LIMIT %d\n", r.limiteValue))
-	}
-
-	// Adds OFFSET if it has been set
-	if r.offsetSet {
-		builder.WriteString(fmt.Sprintf("OFFSET %d", r.offsetValue))
 	}
 
 	return builder.String()
@@ -251,4 +180,75 @@ func (w *where_clause_t) ValidateColumns(t *Table) (errs []error) {
 	}
 
 	return
+}
+
+// range_clause_t encapsulates the SQL clauses used to define the order and extent
+// (i.e., the range) of the result set, specifically ORDER BY, LIMIT, and OFFSET.
+type range_clause_t struct {
+	order       map[string]OrderByType // Maps columns to order direction
+	limiteValue int                    // The value with which limiting the selection
+	limitSet    bool                   // If the limit value has been set
+	offsetValue int                    // Values from which to start selecting
+	offsetSet   bool                   // If the offset value has been set
+
+	parent Rangeable // The parent of this clause
+}
+
+// OrderBy sets the sorting direction (ascending or descending) for a
+// specified column. It ensures that a column is added to the ORDER BY
+// list only once.
+func (r *range_clause_t) OrderBy(name string, dir OrderByType) Rangeable {
+	// Check if the name does not already exists in the map and set it
+	if _, ok := r.order[name]; !ok {
+		r.order[name] = dir
+	}
+
+	return r.parent
+}
+
+// Limit sets the maximum number of rows to be returned by the query.
+// The value is overwritten on every call to this method.
+func (r *range_clause_t) Limit(value int) Rangeable {
+	// Value are overwritten every time the operation is performed
+	r.limiteValue = value
+	r.limitSet = true
+	return r.parent
+}
+
+// Offset sets the number of rows to skip before starting to return results.
+// The value is overwritten on every call to this method.
+func (r *range_clause_t) Offset(value int) Rangeable {
+	// Value are overwritten every time the operation is performed
+	r.offsetValue = value
+	r.offsetSet = true
+	return r.parent
+}
+
+// ToSQLString creates the SQL string releated to ORDER BY, LIMIT
+// and OFFSET clauses
+func (r *range_clause_t) ToSQLString() string {
+	var builder strings.Builder
+
+	// Adds ORDER BY if there are entries in the map
+	if len(r.order) > 0 {
+		builder.WriteString("ORDER BY ")
+		orders := []string{}
+		for name, direction := range r.order {
+			orders = append(orders, fmt.Sprintf("%s %s", name, direction))
+		}
+		builder.WriteString(strings.Join(orders, ", "))
+		builder.WriteString("\n")
+	}
+
+	// Adds LIMIT if it has been set
+	if r.limitSet {
+		builder.WriteString(fmt.Sprintf("LIMIT %d\n", r.limiteValue))
+	}
+
+	// Adds OFFSET if it has been set
+	if r.offsetSet {
+		builder.WriteString(fmt.Sprintf("OFFSET %d", r.offsetValue))
+	}
+
+	return builder.String()
 }

@@ -20,6 +20,121 @@ type column_t struct {
 	Default       any      // Default value for this column
 }
 
+// Validate performs a series of semantic and structural checks on a column definition
+// to ensure that it is valid and consistent with SQLite’s rules and constraints.
+// The method returns a slice of errors describing all validation issues found.
+// If the returned slice is empty, the column definition is considered valid.
+func (c *column_t) Validate() (errs []error) {
+	// The column name cannot be empty
+	if strings.TrimSpace(c.Name) == "" {
+		errs = append(errs, fmt.Errorf("column name cannot be empty"))
+	}
+
+	// Check that the default type maps exactly the input data type
+	if c.Default != nil {
+		if err := checkValueType(c.Default, c); err != nil {
+			errs = append(errs, err)
+		}
+
+		// The column cannot be a primary key, unsual and might break
+		// autoincrement semantics
+		if c.PrimaryKey {
+			err := fmt.Errorf("column %q: PRIMARY KEY columns should not have DEFAULT values", c.Name)
+			errs = append(errs, err)
+		}
+
+		// Check for disallowed defaults on BLOB or complex types
+		if c.Type == BLOB {
+			err := fmt.Errorf("BLOB column %q cannot have a DEFAULT value in SQLite", c.Name)
+			errs = append(errs, err)
+		}
+	}
+
+	// Check for autoincrement conditions. It can only be used with
+	// primary key active and data type = INTEGER. It should not be used
+	// with any other column condition
+	if c.Autoincrement {
+		// Default value check on the autoincrement column
+		if c.Default != nil {
+			err := fmt.Errorf("AUTOINCREMENT column %q cannot have a DEFAULT value", c.Name)
+			errs = append(errs, err)
+		}
+
+		// Type and key check on the autoincrement column
+		if !c.PrimaryKey || c.Type != INTEGER {
+			err := fmt.Errorf(
+				"AUTOINCREMENT only allowed on INTEGER PRIMARY KEY columns (column: %s)",
+				c.Name)
+
+			errs = append(errs, err)
+		}
+
+		// UNIQUE is redundant and invalid in this context
+		if c.Unique {
+			err := fmt.Errorf("AUTOINCREMENT column %q cannot also be declared UNIQUE", c.Name)
+			errs = append(errs, err)
+		}
+	}
+
+	return
+}
+
+// SQLCreate formats the column definition into a valid SQL fragment for CREATE TABLE.
+func (c *column_t) SQLCreate() string {
+	var builder strings.Builder
+
+	// Column name and type
+	builder.WriteString(fmt.Sprintf("\t%s %s", c.Name, c.Type.String()))
+
+	// Primary Key
+	if c.PrimaryKey {
+		builder.WriteString(" PRIMARY KEY")
+
+		// AUTOINCREMENT must come immediately after PRIMARY KEY if present
+		if c.Autoincrement {
+			builder.WriteString(" AUTOINCREMENT")
+		}
+	}
+
+	// NOT NULL
+	if c.NotNull {
+		builder.WriteString(" NOT NULL")
+	}
+
+	// UNIQUE
+	if c.Unique {
+		builder.WriteString(" UNIQUE")
+	}
+
+	// DEFAULT value
+	if c.Default != nil {
+		builder.WriteString(" DEFAULT ")
+		switch v := c.Default.(type) {
+		case string:
+			// Wrap string literals in single quotes, escape internal quotes
+			escaped := strings.ReplaceAll(v, "'", "''")
+			builder.WriteString(fmt.Sprintf("'%s'", escaped))
+
+		case bool:
+			// Booleans in SQLite are represented as 1/0
+			if v {
+				builder.WriteString("1")
+			} else {
+				builder.WriteString("0")
+			}
+
+		case nil:
+			builder.WriteString("NULL")
+
+		default:
+			// Numeric and other literal types
+			builder.WriteString(fmt.Sprintf("%v", v))
+		}
+	}
+
+	return builder.String()
+}
+
 // foreignKey_t represents a FOREIGN KEY constraint definition in an SQLite table.
 //
 // A foreign key enforces referential integrity between the current table
@@ -37,25 +152,63 @@ type foreignKey_t struct {
 	InitiallyDeferred bool             // Whether the constraint starts deferred by default when Deferrable is true.
 }
 
-// RowScanner is a helper struct designed to facilitate the scanning of a single
-// row result retrieved from a database query, typically wrapping *sql.Row.
-type RowScanner struct {
-	rows    *sql.Rows // The result from Query operations
-	columns []string  // The slice of all table columns
+// Validate performs sanity check on the current foreign key structure
+// and returns a list of errors.
+func (fk *foreignKey_t) Validate() (errs []error) {
+	// Sanity check on the number of columns and referenced columns
+	if len(fk.Columns) != len(fk.RefColumns) {
+		err := fmt.Errorf("foreign key mismatch: %d local cols vs %d ref cols",
+			len(fk.Columns), len(fk.RefColumns))
+
+		errs = append(errs, err)
+	}
+
+	// Check that the table name is not an empty string
+	if fk.RefTable == "" {
+		err := fmt.Errorf("foreign key error: table name cannot be empty")
+		errs = append(errs, err)
+	}
+
+	// Check that none of the column names is empty
+	for idx, col_name := range fk.Columns {
+		ref_col_name := fk.RefColumns[idx]
+		if col_name == "" || ref_col_name == "" {
+			err := fmt.Errorf("foreign key error: columns name cannot be empty")
+			errs = append(errs, err)
+		}
+	}
+
+	return
 }
 
-type Row struct {
-	row map[string]any // The values for each column of the current row
-}
+// SQLCreate formats the foreign key constraint into a valid SQL fragment for CREATE TABLE.
+func (fk *foreignKey_t) SQLCreate() string {
+	var builder strings.Builder
 
-// Table represents a database table schema, including its name, columns,
-// and a lookup index for accessing columns by name.
-type Table struct {
-	Name         string          // The name of the table
-	Columns      []*column_t     // The list of columns in the table
-	ColumnsIndex map[string]int  // Maps columns name into indexes
-	ForeignKeys  []*foreignKey_t // The list of all foreign key
-	sch          *Schema         // The schema the table belongs to
+	init_str := "\tFOREIGN KEY (%s) REFERENCES %s(%s)"
+	builder.WriteString(fmt.Sprintf(init_str,
+		strings.Join(fk.Columns, ", "),
+		fk.RefTable,
+		strings.Join(fk.RefColumns, ", ")))
+
+	if fk.OnDelete != NO_ACTION {
+		builder.WriteString(fmt.Sprintf(" ON DELETE %s", fk.OnDelete.String()))
+	}
+
+	if fk.OnUpdate != NO_ACTION {
+		builder.WriteString(fmt.Sprintf(" ON UPDATE %s", fk.OnUpdate.String()))
+	}
+
+	if fk.Deferrable {
+		builder.WriteString(" DEFERRABLE")
+		if fk.InitiallyDeferred {
+			builder.WriteString(" INITIALLY DEFERRED")
+		}
+	} else {
+		builder.WriteString(" NOT DEFERRABLE")
+	}
+
+	return builder.String()
 }
 
 // TableBuilder provides a fluent interface for constructing a table definition
@@ -180,178 +333,82 @@ func (tbld *TableBuilder) Blob(name string) *TableBuilder {
 	return tbld.Column(name, BLOB, false, false, nil)
 }
 
-// Validate performs a series of semantic and structural checks on a column definition
-// to ensure that it is valid and consistent with SQLite’s rules and constraints.
-// The method returns a slice of errors describing all validation issues found.
-// If the returned slice is empty, the column definition is considered valid.
-func (c *column_t) Validate() (errs []error) {
-	// The column name cannot be empty
-	if strings.TrimSpace(c.Name) == "" {
-		errs = append(errs, fmt.Errorf("column name cannot be empty"))
-	}
-
-	// Check that the default type maps exactly the input data type
-	if c.Default != nil {
-		if err := checkValueType(c.Default, c); err != nil {
-			errs = append(errs, err)
-		}
-
-		// The column cannot be a primary key, unsual and might break
-		// autoincrement semantics
-		if c.PrimaryKey {
-			err := fmt.Errorf("column %q: PRIMARY KEY columns should not have DEFAULT values", c.Name)
-			errs = append(errs, err)
-		}
-
-		// Check for disallowed defaults on BLOB or complex types
-		if c.Type == BLOB {
-			err := fmt.Errorf("BLOB column %q cannot have a DEFAULT value in SQLite", c.Name)
-			errs = append(errs, err)
-		}
-	}
-
-	// Check for autoincrement conditions. It can only be used with
-	// primary key active and data type = INTEGER. It should not be used
-	// with any other column condition
-	if c.Autoincrement {
-		// Default value check on the autoincrement column
-		if c.Default != nil {
-			err := fmt.Errorf("AUTOINCREMENT column %q cannot have a DEFAULT value", c.Name)
-			errs = append(errs, err)
-		}
-
-		// Type and key check on the autoincrement column
-		if !c.PrimaryKey || c.Type != INTEGER {
-			err := fmt.Errorf(
-				"AUTOINCREMENT only allowed on INTEGER PRIMARY KEY columns (column: %s)",
-				c.Name)
-
-			errs = append(errs, err)
-		}
-
-		// UNIQUE is redundant and invalid in this context
-		if c.Unique {
-			err := fmt.Errorf("AUTOINCREMENT column %q cannot also be declared UNIQUE", c.Name)
-			errs = append(errs, err)
-		}
-	}
-
-	return
+// RowScanner is a helper struct designed to facilitate the scanning of a single
+// row result retrieved from a database query, typically wrapping *sql.Row.
+type RowScanner struct {
+	rows    *sql.Rows // The result from Query operations
+	columns []string  // The slice of all table columns
 }
 
-// Validate performs sanity check on the current foreign key structure
-// and returns a list of errors.
-func (fk *foreignKey_t) Validate() (errs []error) {
-	// Sanity check on the number of columns and referenced columns
-	if len(fk.Columns) != len(fk.RefColumns) {
-		err := fmt.Errorf("foreign key mismatch: %d local cols vs %d ref cols",
-			len(fk.Columns), len(fk.RefColumns))
-
-		errs = append(errs, err)
+// Next attempts to advance the scanner to the next result row from the database
+// and processes it into a structured *Row object. This method encapsulates the logic
+// for iterating through the result set and converting the raw database data into a
+// map structure suitable for easy access.
+func (rs *RowScanner) Next() (*Row, bool, error) {
+	// If the next operation returns false, then it means that
+	// there are no more rows, or an error occurred
+	if !rs.rows.Next() {
+		return nil, false, rs.rows.Err()
 	}
 
-	// Check that the table name is not an empty string
-	if fk.RefTable == "" {
-		err := fmt.Errorf("foreign key error: table name cannot be empty")
-		errs = append(errs, err)
+	// Fill the values by scanning the current row. First initialize
+	// two vectors: the first one will contains the actual value,
+	// while the second one will only contains the pointers to values
+	col_values := make([]any, len(rs.columns))
+	col_values_ptr := make([]any, len(rs.columns))
+	for idx := range col_values {
+		col_values_ptr[idx] = &col_values[idx]
 	}
 
-	// Check that none of the column names is empty
-	for idx, col_name := range fk.Columns {
-		ref_col_name := fk.RefColumns[idx]
-		if col_name == "" || ref_col_name == "" {
-			err := fmt.Errorf("foreign key error: columns name cannot be empty")
-			errs = append(errs, err)
+	// Scan the current selected row
+	if err := rs.rows.Scan(col_values_ptr...); err != nil {
+		return nil, false, err
+	}
+
+	// Create the mapping between column and values
+	row := &Row{row: make(map[string]any)}
+	for idx, column := range rs.columns {
+		curr_value := col_values[idx]
+		if bytes, ok := curr_value.([]byte); ok {
+			curr_value = string(bytes)
 		}
+		row.row[column] = curr_value
 	}
 
-	return
+	return row, true, nil
 }
 
-// SQLCreate formats the column definition into a valid SQL fragment for CREATE TABLE.
-func (c *column_t) SQLCreate() string {
-	var builder strings.Builder
-
-	// Column name and type
-	builder.WriteString(fmt.Sprintf("\t%s %s", c.Name, c.Type.String()))
-
-	// Primary Key
-	if c.PrimaryKey {
-		builder.WriteString(" PRIMARY KEY")
-
-		// AUTOINCREMENT must come immediately after PRIMARY KEY if present
-		if c.Autoincrement {
-			builder.WriteString(" AUTOINCREMENT")
-		}
-	}
-
-	// NOT NULL
-	if c.NotNull {
-		builder.WriteString(" NOT NULL")
-	}
-
-	// UNIQUE
-	if c.Unique {
-		builder.WriteString(" UNIQUE")
-	}
-
-	// DEFAULT value
-	if c.Default != nil {
-		builder.WriteString(" DEFAULT ")
-		switch v := c.Default.(type) {
-		case string:
-			// Wrap string literals in single quotes, escape internal quotes
-			escaped := strings.ReplaceAll(v, "'", "''")
-			builder.WriteString(fmt.Sprintf("'%s'", escaped))
-
-		case bool:
-			// Booleans in SQLite are represented as 1/0
-			if v {
-				builder.WriteString("1")
-			} else {
-				builder.WriteString("0")
-			}
-
-		case nil:
-			builder.WriteString("NULL")
-
-		default:
-			// Numeric and other literal types
-			builder.WriteString(fmt.Sprintf("%v", v))
-		}
-	}
-
-	return builder.String()
+// Close closes the row scanner handler
+func (rs *RowScanner) Close() {
+	utils.ErrorHandler(rs.rows.Close)
 }
 
-// SQLCreate formats the foreign key constraint into a valid SQL fragment for CREATE TABLE.
-func (fk *foreignKey_t) SQLCreate() string {
-	var builder strings.Builder
-
-	init_str := "\tFOREIGN KEY (%s) REFERENCES %s(%s)"
-	builder.WriteString(fmt.Sprintf(init_str,
-		strings.Join(fk.Columns, ", "),
-		fk.RefTable,
-		strings.Join(fk.RefColumns, ", ")))
-
-	if fk.OnDelete != NO_ACTION {
-		builder.WriteString(fmt.Sprintf(" ON DELETE %s", fk.OnDelete.String()))
+// ValueOf returns the value associated with the input column name
+func (r *Row) ValueOf(name string) (any, error) {
+	curr_row_value, ok := r.row[name]
+	if !ok {
+		return nil, fmt.Errorf("unmatched column name %q", name)
 	}
+	return curr_row_value, nil
+}
 
-	if fk.OnUpdate != NO_ACTION {
-		builder.WriteString(fmt.Sprintf(" ON UPDATE %s", fk.OnUpdate.String()))
-	}
+type Row struct {
+	row map[string]any // The values for each column of the current row
+}
 
-	if fk.Deferrable {
-		builder.WriteString(" DEFERRABLE")
-		if fk.InitiallyDeferred {
-			builder.WriteString(" INITIALLY DEFERRED")
-		}
-	} else {
-		builder.WriteString(" NOT DEFERRABLE")
-	}
+// Values returns all values for this row
+func (r *Row) Values() map[string]any {
+	return r.row
+}
 
-	return builder.String()
+// Table represents a database table schema, including its name, columns,
+// and a lookup index for accessing columns by name.
+type Table struct {
+	Name         string          // The name of the table
+	Columns      []*column_t     // The list of columns in the table
+	ColumnsIndex map[string]int  // Maps columns name into indexes
+	ForeignKeys  []*foreignKey_t // The list of all foreign key
+	sch          *Schema         // The schema the table belongs to
 }
 
 // SQLCreate creates the CREATE statement for current table
@@ -609,63 +666,6 @@ func (t *Table) String() string {
 	sb.WriteString(utils.MakeBottomBorder(colWidths) + "\n")
 
 	return sb.String()
-}
-
-// Next attempts to advance the scanner to the next result row from the database
-// and processes it into a structured *Row object. This method encapsulates the logic
-// for iterating through the result set and converting the raw database data into a
-// map structure suitable for easy access.
-func (rs *RowScanner) Next() (*Row, bool, error) {
-	// If the next operation returns false, then it means that
-	// there are no more rows, or an error occurred
-	if !rs.rows.Next() {
-		return nil, false, rs.rows.Err()
-	}
-
-	// Fill the values by scanning the current row. First initialize
-	// two vectors: the first one will contains the actual value,
-	// while the second one will only contains the pointers to values
-	col_values := make([]any, len(rs.columns))
-	col_values_ptr := make([]any, len(rs.columns))
-	for idx := range col_values {
-		col_values_ptr[idx] = &col_values[idx]
-	}
-
-	// Scan the current selected row
-	if err := rs.rows.Scan(col_values_ptr...); err != nil {
-		return nil, false, err
-	}
-
-	// Create the mapping between column and values
-	row := &Row{row: make(map[string]any)}
-	for idx, column := range rs.columns {
-		curr_value := col_values[idx]
-		if bytes, ok := curr_value.([]byte); ok {
-			curr_value = string(bytes)
-		}
-		row.row[column] = curr_value
-	}
-
-	return row, true, nil
-}
-
-// Close closes the row scanner handler
-func (rs *RowScanner) Close() {
-	utils.ErrorHandler(rs.rows.Close)
-}
-
-// ValueOf returns the value associated with the input column name
-func (r *Row) ValueOf(name string) (any, error) {
-	curr_row_value, ok := r.row[name]
-	if !ok {
-		return nil, fmt.Errorf("unmatched column name %q", name)
-	}
-	return curr_row_value, nil
-}
-
-// Values returns all values for this row
-func (r *Row) Values() map[string]any {
-	return r.row
 }
 
 // ColumnNames returns the names of all column in the table as they
