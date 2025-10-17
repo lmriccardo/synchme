@@ -1,6 +1,7 @@
 package dbutils
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -12,8 +13,11 @@ import (
 // Statement represents a prepared SQL statement. It also holds a mapping from named
 // arguments to their respective positions, required when executing the statement
 type Statement struct {
-	Query string // Query used to build the statement
+	QueryString string            // Query used to build the statement
+	Columns     map[string]string // Columns referenced by this statement
 
+	table         *Table           // Table subject to this statement
+	ctx           context.Context  // The execution context of the statement
 	stmt          *sql.Stmt        // The actual sql prepared statement
 	positionalMap map[string][]int // A mapping from arguments to position
 	nofArgs       int              // Total number of arguments
@@ -22,9 +26,9 @@ type Statement struct {
 // Buildable defines the minimum set of methods required for any object
 // that can be converted into an executable SQL statement.
 type Buildable interface {
-	Validate() error                          // Validates the buildable before building it
-	Build() (string, error)                   // Returns the string query of the operation
-	Prepare() (*Statement, TypeValidatorFunc) // Prepare finalizes the query and prepares it for execution
+	Validate() error        // Validates the buildable before building it
+	Build() (string, error) // Returns the string query of the operation
+	Prepare() *Statement    // Prepare finalizes the query and prepares it for execution
 }
 
 // Rangeable extends the Buildable interface with methods for controlling the
@@ -65,7 +69,7 @@ type InsertBuilder struct {
 }
 
 type SelectBuilder struct {
-	// table *Table // The table the current operation is updating
+	// table *Table // The table subject of the current operation
 
 	where_clause_t // Embedded structure for building the WHERE clause.
 	range_clause_t // Embedded structure for building the ORDER BY, LIMIT and OFFSET clauses.
@@ -116,35 +120,35 @@ func (p *preparator_t) processMatch(stmt *Statement, columns map[string]string,
 // and the database columns they reference. It prepares the underlying SQL statement
 // and constructs a mapping from named parameters to their positional indices
 // within the prepared statement.
-func (p *preparator_t) Prepare() (*Statement, TypeValidatorFunc) {
+func (p *preparator_t) Prepare() *Statement {
 	stmt := &Statement{
+		Columns:       make(map[string]string),
+		table:         p.table,
+		ctx:           p.table.sch.ctx,
 		positionalMap: make(map[string][]int),
 	}
 
 	query := p.sql
-	columns := make(map[string]string)
 
 	// Extract all parameter matches from the SQL
 	matches := extractParamMatches(p.sql)
 
 	// Process each match and replace parameters
 	for _, m := range matches {
-		query, _ = p.processMatch(stmt, columns, query, m)
+		query, _ = p.processMatch(stmt, stmt.Columns, query, m)
 	}
 
 	// Prepare the statement
 	preparedStmt, err := p.table.sch.db.Prepare(query)
 	if err != nil {
 		fmt.Println("Error preparing statement:", err)
-		return nil, nil
+		return nil
 	}
 
 	stmt.stmt = preparedStmt
-	stmt.Query = query
+	stmt.QueryString = query
 
-	return stmt, func(params map[string]any) (bool, []error) {
-		return ValidateTypes(columns, params, p.table)
-	}
+	return stmt
 }
 
 // Set registers one or more column names to be included in the SET clause of the
@@ -179,12 +183,12 @@ func (u *UpdateBuilder) SetValue(name string, value any) *UpdateBuilder {
 
 // Prepare finalizes the UpdateBuilder and returns a prepared SQL Statement
 // ready for execution, along with a function to validate argument types.
-func (u *UpdateBuilder) Prepare() (*Statement, TypeValidatorFunc) {
+func (u *UpdateBuilder) Prepare() *Statement {
 	// First build the SQL query containing positional arguments ids
 	// and check that there are no errors during build stage
 	if sql, err := u.Build(); err != nil {
 		fmt.Println(err)
-		return nil, nil
+		return nil
 	} else {
 		u.sql = sql
 		return u.preparator_t.Prepare()
@@ -242,12 +246,12 @@ func (i *InsertBuilder) ColumnWithValue(name string, value any) *InsertBuilder {
 
 // Prepare finalizes the InsertBuilder and returns a prepared SQL Statement
 // ready for execution, along with a function to validate argument types.
-func (i *InsertBuilder) Prepare() (*Statement, TypeValidatorFunc) {
+func (i *InsertBuilder) Prepare() *Statement {
 	// First build the SQL query containing positional arguments ids
 	// and check that there are no errors during build stage
 	if sql, err := i.Build(); err != nil {
 		fmt.Println(err)
-		return nil, nil
+		return nil
 	} else {
 		i.sql = sql
 		return i.preparator_t.Prepare()
@@ -375,4 +379,107 @@ func (i *InsertBuilder) Build() (string, error) {
 		strings.Join(values, ", ")))
 
 	return builder.String(), nil
+}
+
+// constructInputArguments translates a map of named argument values into a
+// slice of positional arguments ([]any) suitable for execution against a database
+// driver (like sql.DB.Exec).
+func (stmt *Statement) constructInputArguments(args map[string]any) ([]any, error) {
+	stmt_arguments := make([]any, stmt.nofArgs)
+	for param_name, param_value := range args {
+		param_positions, ok := stmt.positionalMap[param_name]
+		if !ok {
+			return nil, fmt.Errorf(
+				"parameter %q is not required to run the statement", param_name)
+		}
+
+		for _, position := range param_positions {
+			stmt_arguments[position] = param_value
+		}
+	}
+
+	return stmt_arguments, nil
+}
+
+// prepareArguments takes flexible input arguments, normalizes them, validates their
+// types and values against the statement's schema, and finally converts them into
+// a positionally ordered slice ready for SQL execution. This method is a crucial
+// preprocessing step before executing a database query, ensuring the arguments are
+// correctly structured and valid.
+func (stmt *Statement) prepareArguments(args any) ([]any, error) {
+	// First normalize the input arguments to a map from string to any
+	normalized_args, err := normalizeArguments(args)
+	if err != nil {
+		return nil, err
+	}
+
+	// Run the validator on the input arguments
+	if _, errs := ValidateTypes(stmt.Columns, normalized_args, stmt.table); len(errs) > 0 {
+		return nil, errors.New(strings.Join(utils.Map(func(e error) string {
+			return e.Error()
+		}, errs), "\n"))
+	}
+
+	// Construct the input parameters for the statement execution
+	stmt_arguments, err := stmt.constructInputArguments(normalized_args)
+	if err != nil {
+		return nil, err
+	}
+
+	return stmt_arguments, nil
+}
+
+// Exec executes the underlying prepared SQL statement (`stmt.stmt`) after processing,
+// validating, and arranging the input arguments. It returns the result of the operation
+// and an optional error, if something didnt go as expected.
+func (stmt *Statement) Exec(args any) (sql.Result, error) {
+	// If the input argument is nil then we need to check if the statement
+	// does have some named parameters that are necessarily
+	if args == nil {
+		if stmt.nofArgs > 0 {
+			return nil, fmt.Errorf("statement requires %d but nil is passed", stmt.nofArgs)
+		}
+
+		return stmt.stmt.ExecContext(stmt.ctx)
+	}
+
+	stmt_arguments, err := stmt.prepareArguments(args)
+	if err != nil {
+		return nil, err
+	}
+
+	// Execute the statement and returns error if any with the SQL Result
+	return stmt.stmt.ExecContext(stmt.ctx, stmt_arguments...)
+}
+
+// Exec executes the underlying prepared SQL statement (`stmt.stmt`) after processing,
+// validating, and arranging the input arguments. It returns the result of the operation
+// and an optional error, if something didnt go as expected.
+func (stmt *Statement) Query(args any) (*RowScanner, error) {
+	// If the input argument is nil then we need to check if the statement
+	// does have some named parameters that are necessarily
+	var rows *sql.Rows
+	var err error
+
+	if args == nil {
+		if stmt.nofArgs > 0 {
+			return nil, fmt.Errorf("statement requires %d but nil is passed", stmt.nofArgs)
+		}
+
+		rows, err = stmt.stmt.QueryContext(stmt.ctx)
+	} else {
+		stmt_arguments, err1 := stmt.prepareArguments(args)
+		if err1 != nil {
+			return nil, err1
+		}
+
+		// Execute the statement and returns error if any with the SQL Result
+		rows, err = stmt.stmt.QueryContext(stmt.ctx, stmt_arguments...)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	return &RowScanner{rows: rows, columns: stmt.table.ColumnNames()}, nil
 }

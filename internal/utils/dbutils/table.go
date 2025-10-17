@@ -1,6 +1,7 @@
 package dbutils
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -34,6 +35,17 @@ type foreignKey_t struct {
 	OnUpdate          ForeignKeyAction // Action to perform when a referenced row is updated.
 	Deferrable        bool             // Whether enforcement of the constraint can be deferred until the end of a transaction.
 	InitiallyDeferred bool             // Whether the constraint starts deferred by default when Deferrable is true.
+}
+
+// RowScanner is a helper struct designed to facilitate the scanning of a single
+// row result retrieved from a database query, typically wrapping *sql.Row.
+type RowScanner struct {
+	rows    *sql.Rows // The result from Query operations
+	columns []string  // The slice of all table columns
+}
+
+type Row struct {
+	row map[string]any // The values for each column of the current row
 }
 
 // Table represents a database table schema, including its name, columns,
@@ -597,4 +609,67 @@ func (t *Table) String() string {
 	sb.WriteString(utils.MakeBottomBorder(colWidths) + "\n")
 
 	return sb.String()
+}
+
+// Next attempts to advance the scanner to the next result row from the database
+// and processes it into a structured *Row object. This method encapsulates the logic
+// for iterating through the result set and converting the raw database data into a
+// map structure suitable for easy access.
+func (rs *RowScanner) Next() (*Row, bool, error) {
+	// If the next operation returns false, then it means that
+	// there are no more rows, or an error occurred
+	if !rs.rows.Next() {
+		return nil, false, rs.rows.Err()
+	}
+
+	// Fill the values by scanning the current row. First initialize
+	// two vectors: the first one will contains the actual value,
+	// while the second one will only contains the pointers to values
+	col_values := make([]any, len(rs.columns))
+	col_values_ptr := make([]any, len(rs.columns))
+	for idx := range col_values {
+		col_values_ptr[idx] = &col_values[idx]
+	}
+
+	// Scan the current selected row
+	if err := rs.rows.Scan(col_values_ptr...); err != nil {
+		return nil, false, err
+	}
+
+	// Create the mapping between column and values
+	row := &Row{row: make(map[string]any)}
+	for idx, column := range rs.columns {
+		curr_value := col_values[idx]
+		if bytes, ok := curr_value.([]byte); ok {
+			curr_value = string(bytes)
+		}
+		row.row[column] = curr_value
+	}
+
+	return row, true, nil
+}
+
+// Close closes the row scanner handler
+func (rs *RowScanner) Close() {
+	utils.ErrorHandler(rs.rows.Close)
+}
+
+// ValueOf returns the value associated with the input column name
+func (r *Row) ValueOf(name string) (any, error) {
+	curr_row_value, ok := r.row[name]
+	if !ok {
+		return nil, fmt.Errorf("unmatched column name %q", name)
+	}
+	return curr_row_value, nil
+}
+
+// Values returns all values for this row
+func (r *Row) Values() map[string]any {
+	return r.row
+}
+
+// ColumnNames returns the names of all column in the table as they
+// actually appear inside that table
+func (t *Table) ColumnNames() []string {
+	return utils.Map(func(c *column_t) string { return c.Name }, t.Columns)
 }

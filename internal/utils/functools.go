@@ -7,7 +7,10 @@ package utils
 import (
 	"fmt"
 	"reflect"
+	"sync"
 )
+
+var structMapCache sync.Map // map[reflect.Type][]reflect.StructField
 
 // Map applies the given function `fn` to each element of the input slice `in`,
 // returning a new slice of results.
@@ -174,4 +177,49 @@ func MapKeys[T comparable](m map[T]any) []T {
 		keys = append(keys, k)
 	}
 	return keys
+}
+
+// ExtractFieldValues iterates over a list of struct fields and extracts their
+// corresponding values from a reflect.Value representing the struct instance.
+// The value associated with the key is the field's value, obtained via reflection
+// and returned as an `interface{}`.
+func ExtractFieldValues(v reflect.Value, fields []reflect.StructField, tagName string) map[string]any {
+	m := make(map[string]any)
+	for _, field := range fields {
+		paramName := field.Name
+		if tagValue, ok := field.Tag.Lookup(tagName); ok {
+			paramName = tagValue
+		}
+		m[paramName] = v.FieldByName(field.Name).Interface()
+	}
+	return m
+}
+
+// StructToMap converts an input struct or a pointer to a struct into a map[string]any.
+// The value in the map is the actual value of the corresponding field in the struct.
+// The key in the map is either the actual parameter name, or the identifier written
+// inside the tag for each parameter.
+//
+// T is a generic type constraint representing the input struct or pointer to a struct.
+func StructToMap[T any](in_struct T, tag string) (map[string]any, error) {
+	// First check if the input struct is a pointer to a struct
+	in_struct_v := reflect.ValueOf(in_struct)
+	if in_struct_v.Kind() == reflect.Pointer {
+		in_struct_v = in_struct_v.Elem()
+	}
+
+	// Now we can check if the input struct is a Struct
+	if in_struct_v.Kind() != reflect.Struct {
+		return nil, fmt.Errorf("expected struct, got %s", in_struct_v.Kind())
+	}
+
+	// Check if the struct type is in the cache
+	if cached, ok := structMapCache.Load(in_struct_v.Type()); ok {
+		return ExtractFieldValues(in_struct_v, cached.([]reflect.StructField), tag), nil
+	}
+
+	// The struct must have at least one field
+	struct_fields := reflect.VisibleFields(in_struct_v.Type())
+	structMapCache.Store(in_struct_v.Type(), struct_fields)
+	return ExtractFieldValues(in_struct_v, struct_fields, tag), nil
 }

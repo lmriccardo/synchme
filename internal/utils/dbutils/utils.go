@@ -1,10 +1,13 @@
 package dbutils
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"regexp"
 	"strings"
+
+	"github.com/lmriccardo/synchme/internal/utils"
 )
 
 // validateConditionColumns checks if a raw SQL condition string contains valid
@@ -130,4 +133,40 @@ func extractParamMatches(sql string) [][]string {
 	)
 
 	return pattern.FindAllStringSubmatch(sql, -1)
+}
+
+// normalizeArguments validates and converts the input arguments into a standardized
+// map[string]any format, where keys are parameter names and values are their
+// corresponding values. It converts only structure or pointer to structure.
+// Any other input type (e.g., slice, int, string) is considered invalid.
+func normalizeArguments(args any) (map[string]any, error) {
+	// Input arguments can be either a struct with defined parameters or a map from
+	// parameter name to values. Any other input type is not a valid arguments type
+	args_v := reflect.ValueOf(args)
+
+	// If the input is a pointer, dereference it and get the concrete type
+	if args_v.Kind() == reflect.Pointer {
+		if args_v.IsNil() {
+			return nil, errors.New("input argument pointer is nil")
+		}
+
+		args_v = args_v.Elem()
+	}
+
+	// Get the actual concrete type after possible dereference
+	args_t := args_v.Kind()
+
+	if args_t != reflect.Map && args_t != reflect.Struct {
+		return nil, fmt.Errorf("unallowed input argument type %q", args_t.String())
+	}
+
+	// Otherwise, if it is a struct we need to check for tags
+	if args_t == reflect.Struct {
+		var err error
+		if args, err = utils.StructToMap(args, "dbutils"); err != nil {
+			return nil, err
+		}
+	}
+
+	return args.(map[string]any), nil
 }

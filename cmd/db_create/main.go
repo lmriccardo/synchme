@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 
 	_ "modernc.org/sqlite"
 
@@ -12,16 +13,19 @@ import (
 func PrintOperation(b dbutils.Buildable) {
 	_, err := b.Build()
 	if err != nil {
-		fmt.Println(err)
-		return
+		log.Fatal(err)
 	}
 
-	stmt, _ := b.Prepare()
+	stmt := b.Prepare()
 	if stmt == nil {
 		return
 	}
 
 	fmt.Println(stmt)
+}
+
+type InsertInput struct {
+	Name string `dbutils:"name"`
 }
 
 func main() {
@@ -73,4 +77,33 @@ func main() {
 
 	insert := tbl.Insert().Columns("name").ColumnWithValue("age", 10)
 	PrintOperation(insert)
+
+	stmt := insert.Prepare()
+	result1, err := stmt.Exec(InsertInput{Name: "file1.txt"})
+	if err != nil {
+		fmt.Println(err)
+		return
+	}
+
+	fmt.Println(result1.RowsAffected())
+
+	result, err := stmt.Query(InsertInput{Name: "file1.txt"})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	defer result.Close()
+
+	for {
+		row, ok, err := result.Next()
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		if !ok {
+			break
+		}
+
+		fmt.Println(row.Values())
+	}
 }
