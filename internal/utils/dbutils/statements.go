@@ -11,11 +11,22 @@ import (
 )
 
 // Buildable defines the minimum set of methods required for any object
-// that can be converted into an executable SQL statement.
+// that can be converted into an executable SQL statement. This interface
+// is the foundation for all SQL builders.
 type Buildable interface {
-	Validate() error        // Validates the buildable before building it
-	Build() (string, error) // Returns the string query of the operation
-	Prepare() *Statement    // Prepare finalizes the query and prepares it for execution
+	// Validate checks the internal state of the builder to ensure it is
+	// correctly configured before attempting to generate the SQL query.
+	// It returns an error if the configuration is invalid (e.g., missing table, no columns).
+	Validate() error
+
+	// Build generates and returns the raw SQL query string for the operation.
+	// It does not include logic for database-specific placeholders or preparation.
+	// It returns the query string and an error if validation or building fails.
+	Build() (string, error)
+
+	// Prepare finalizes the query, handles database-specific formatting (like placeholders),
+	// and wraps the result in a *Statement structure, ready for execution.
+	Prepare() *Statement
 }
 
 // Rangeable extends the Buildable interface with methods for controlling the
@@ -23,23 +34,37 @@ type Buildable interface {
 // These methods typically return the Rangeable interface itself to allow
 // for method chaining.
 type Rangeable interface {
+	// Embeds the Buildable interface, meaning any Rangeable object must also
+	// implement Validate, Build, and Prepare.
 	Buildable
-	Limit(int) Rangeable                   // Limit specifies the maximum number of rows to return.
-	Offset(int) Rangeable                  // Offset specifies the number of rows to skip
-	OrderBy(string, OrderByType) Rangeable // OrderBy specifies a column and direction (ASC/DESC)
+
+	// Limit specifies the maximum number of rows to return from the result set.
+	// It takes an integer for the limit value and returns the Rangeable interface
+	// for further chaining.
+	Limit(int) Rangeable
+
+	// Offset specifies the number of rows to skip before starting to return
+	// the result set. This is commonly used for pagination.
+	// It takes an integer for the offset value and returns Rangeable.
+	Offset(int) Rangeable
+
+	// OrderBy specifies a column and the direction (e.g., ASC or DESC, defined by OrderByType)
+	// by which the result set should be sorted.
+	// It takes the column name and the order type, and returns Rangeable.
+	OrderBy(string, OrderByType) Rangeable
 }
 
-// Statement represents a prepared SQL statement. It also holds a mapping from named
-// arguments to their respective positions, required when executing the statement
+// Statement represents a prepared SQL statement. It holds the final query,
+// metadata about the columns, and the necessary underlying objects for execution,
+// including a mapping from named arguments to their respective placeholder positions.
 type Statement struct {
-	QueryString string            // Query used to build the statement
-	Columns     map[string]string // Columns referenced by this statement
-
-	table         *Table           // Table subject to this statement
-	ctx           context.Context  // The execution context of the statement
-	stmt          *sql.Stmt        // The actual sql prepared statement
-	positionalMap map[string][]int // A mapping from arguments to position
-	nofArgs       int              // Total number of arguments
+	QueryString   string            // The fully formatted, final SQL query text with placeholders.
+	Columns       map[string]string // Maps original column names to their aliases/final result names.
+	table         *Table            // Pointer to the primary Table structure involved in the statement.
+	ctx           context.Context   // The execution context (for timeouts, cancellation, etc.).
+	stmt          *sql.Stmt         // The actual underlying pre-compiled *sql.Stmt object.
+	positionalMap map[string][]int  // Maps named arguments to their 1-based positional index(es) in the query.
+	nofArgs       int               // The total number of unique arguments (placeholders) in the query.
 }
 
 // constructInputArguments translates a map of named argument values into a
@@ -225,18 +250,17 @@ func (p *preparator_t) Prepare() *Statement {
 	return stmt
 }
 
-// UpdateBuilder is a fluent interface structure used to construct an SQL UPDATE statement.
-// It tracks the columns and values to be set, and embeds structures for defining
-// the WHERE clause and any limiting/ordering clauses.
+// UpdateBuilder is a structure used to construct SQL UPDATE statements.
+// It contains the data and methods necessary to specify which columns to update,
+// the values for those columns, the target table, and clauses for filtering
+// (WHERE) and limiting the affected rows (RANGE).
 type UpdateBuilder struct {
-	columns    map[string]any // Columns affected by the update operation
-	parameters []string       // Parameters for each column (actually the column name)
-
-	table *Table // The table the current operation is updating
-
-	where_clause_t // Embedded structure for building the WHERE clause.
-	range_clause_t // Embedded structure for building the ORDER BY, LIMIT and OFFSET clauses.
-	preparator_t   // Embedded structure for preparing SQL statements
+	columns        map[string]any // Maps column names (string) to their new values for the SET clause.
+	parameters     []string       // Slice of column names used internally to manage the update order.
+	table          *Table         // Pointer to the target Table structure for the UPDATE operation.
+	where_clause_t                // Embedded structure managing the conditions for the WHERE clause.
+	range_clause_t                // Embedded structure managing ORDER BY, LIMIT, and OFFSET clauses.
+	preparator_t                  // Embedded structure for preparing the final SQL statement and arguments.
 }
 
 // Set registers one or more column names to be included in the SET clause of the
@@ -353,11 +377,14 @@ func (u *UpdateBuilder) Build() (string, error) {
 	return builder.String(), nil
 }
 
+// InsertBuilder is a structure used to build SQL INSERT statements.
+// It holds the data for the columns and values to be inserted,
+// the target table, and a preparator for generating the final
+// prepared SQL statement.
 type InsertBuilder struct {
-	columns map[string]any // Columns to which insert values
-	table   *Table         // The table the current operation is updating
-
-	preparator_t // Embedded structure for preparing SQL statements
+	columns      map[string]any // Maps column names (string) to their insertion values (any).
+	table        *Table         // Pointer to the target Table structure for the INSERT.
+	preparator_t                // Embedded structure for preparing the final SQL statement and arguments.
 }
 
 // Columns select the input columns for the INSERT operation
@@ -464,13 +491,181 @@ func (i *InsertBuilder) Build() (string, error) {
 	return builder.String(), nil
 }
 
-type SelectBuilder struct {
-	column []string // Column to select during the operation
-	table  *Table   // The table subject of the current operation
+// select_column_t is an internal structure used to represent a single
+// column or expression being selected in a SQL SELECT statement.
+// It stores the column's name, an optional alias, a flag to indicate
+// if an alias is present, and a possible operation applied to the column.
+type select_column_t struct {
+	name      string   // Column name or expression (e.g., "id", "COUNT(*)").
+	alias     any      // Alternative name for the result (the AS clause).
+	has_alias bool     // True if the 'alias' field should be used in the query.
+	op        ColumnOp // Optional function or operation applied to the column.
+	table     string   // Optional table name or alias used to qualify the column
+}
 
-	where_clause_t // Embedded structure for building the WHERE clause.
-	range_clause_t // Embedded structure for building the ORDER BY, LIMIT and OFFSET clauses.
-	preparator_t   // Embedded structure for preparing SQL statements
+// table_ref_t is an internal structure used to hold a reference to a table
+// in a SQL query, including its original name and an optional alias.
+type table_ref_t struct {
+	name      string // The original name of the database table.
+	alias     any    // The optional alternative name (alias) for the table in the query.
+	has_alias bool   // True if the 'alias' field is actively set and should be used (e.g., 'table alias').
+}
+
+// join_t is an internal structure used to represent a single JOIN clause
+// in a SQL SELECT statement, defining the type of join, the table being
+// joined, and the condition for the join (the ON clause).
+type join_t struct {
+	join_type JoinType     // The type of join (e.g., INNER, LEFT, RIGHT, FULL) defined by the JoinType enum/type.
+	target    *table_ref_t // Pointer to the *table_ref_t detailing the table being joined.
+	condition string       // The raw SQL condition string for the ON clause (e.g., "u.id = o.user_id").
+}
+
+// SelectBuilder is a structure used to construct SQL SELECT statements.
+// It manages the columns to be retrieved, column aliases, the target table,
+// and embeds clauses for filtering (WHERE), ordering/limiting (RANGE),
+// and preparing the final SQL string.
+type SelectBuilder struct {
+	columns map[string]*select_column_t // Maps keys to *select_column_t for all selected columns/expressions.
+	from    map[string]*table_ref_t     // Maps table aliases to *table_ref_t for all tables in the query.
+	joins   []*join_t                   // Slice of joins statements
+
+	schema   *Schema // Reference to the entire Database Schema for context and validation.
+	distinct bool    // If the distinct operation is applied to query-level
+
+	where_clause_t // Embedded structure managing conditions for the WHERE clause.
+	range_clause_t // Embedded structure managing ORDER BY, LIMIT, and OFFSET clauses.
+}
+
+// Distinct sets the DISTINCT operator query-level
+func (s *SelectBuilder) Distinct() *SelectBuilder {
+	s.distinct = true
+	return s
+}
+
+func (s *SelectBuilder) addColumn(name string, alias any, op ColumnOp) {
+	// We need to check whether the name also provide a table reference
+	// The table reference might also be an alias for a table. At this
+	// step of SELECT operation construction, we dont really care.
+	table_reference := ""
+	raw_column_name := name
+	if strings.Contains(name, ".") {
+		split_result := strings.Split(name, ".")
+		table_reference = split_result[0]
+		raw_column_name = split_result[1]
+	}
+
+	// If the column has already been previously inserted returns
+	if _, ok := s.columns[name]; ok {
+		return
+	}
+
+	// Now construct the column reference and put it into the map
+	s.columns[name] = &select_column_t{
+		name:      raw_column_name,
+		alias:     alias,
+		has_alias: alias != nil,
+		op:        op,
+		table:     table_reference,
+	}
+}
+
+// Columns specifies the columns to be selected in the SQL query. It does not
+// append columns that already belongs to the column list. Moreover, this function
+// does not perform any sanity check on the input strings, therefore each
+// element in the input slice must represent an exact column name
+func (s *SelectBuilder) Columns(names ...string) *SelectBuilder {
+	for _, column_name := range names {
+		s.addColumn(column_name, nil, NONE)
+	}
+
+	return s
+}
+
+// ColumnWithAlias adds a new column and its associated alias
+func (s *SelectBuilder) ColumnWithAlias(name, alias string) *SelectBuilder {
+	s.addColumn(name, alias, NONE)
+	return s
+}
+
+// ColumnWithAlias adds a new column, its associated alias and the operation
+// applied to that column. Available operations are expressed in terms of ColumnOp type
+// and are: NONE, COUNT, MIN, MAX, AVG, SUM, UPPER, LOWER, DISTINCT.
+func (s *SelectBuilder) ColumnWithOp(name, alias string, op ColumnOp) *SelectBuilder {
+	s.addColumn(name, alias, op)
+	return s
+}
+
+// ColumnWithOpDistinct adds a column to the SELECT statement with an optional
+// alias, a specific operation (like an aggregate function), and applies the
+// DISTINCT modifier to that column's operation.
+func (s *SelectBuilder) ColumnWithOpDistinct(name, alias string, op ColumnOp) *SelectBuilder {
+	s.addColumn(name, alias, op|DISTINCT)
+	return s
+}
+
+// addTable is an internal helper method used to add a table reference to the SelectBuilder.
+// It prevents adding the same table twice and sets the table's name and alias details.
+func (s *SelectBuilder) addTable(table string, alias any) {
+	if _, ok := s.from[table]; ok {
+		return
+	}
+
+	s.from[table] = &table_ref_t{
+		name:      table,
+		alias:     alias,
+		has_alias: alias != nil,
+	}
+}
+
+// From specifies one or more tables to select data from, forming the FROM clause.
+// It adds the provided tables to the builder without any aliases.
+func (s *SelectBuilder) From(tables ...string) *SelectBuilder {
+	for _, table := range tables {
+		s.addTable(table, nil)
+	}
+
+	return s
+}
+
+// FromWithAlias specifies a single table to select data from and assigns it a specific alias.
+// This is typically used for clarity or to distinguish tables in a self-join.
+func (s *SelectBuilder) FromWithAlias(table, alias string) *SelectBuilder {
+	s.addTable(table, alias)
+	return s
+}
+
+// Join adds a new JOIN clause to the SELECT statement, specifying the table,
+// an optional alias, the type of join, and the ON condition expression.
+func (s *SelectBuilder) Join(target string, alias any,
+	join_type JoinType, expr string) *SelectBuilder {
+	// Construct and add the new join operation
+	s.joins = append(s.joins, &join_t{
+		join_type: join_type,
+		target: &table_ref_t{
+			name:      target,
+			alias:     alias,
+			has_alias: alias != nil,
+		},
+		condition: expr,
+	})
+
+	return s
+}
+
+func (s *SelectBuilder) InnerJoin(target string, alias any, expr string) *SelectBuilder {
+	return s.Join(target, alias, INNER, expr)
+}
+func (s *SelectBuilder) LeftJoin(target string, alias any, expr string) *SelectBuilder {
+	return s.Join(target, alias, LEFT, expr)
+}
+func (s *SelectBuilder) RightJoin(target string, alias any, expr string) *SelectBuilder {
+	return s.Join(target, alias, RIGHT, expr)
+}
+func (s *SelectBuilder) FullJoin(target string, alias any, expr string) *SelectBuilder {
+	return s.Join(target, alias, FULL, expr)
+}
+func (s *SelectBuilder) CrossJoin(target string, alias any, expr string) *SelectBuilder {
+	return s.Join(target, alias, CROSS, expr)
 }
 
 func (s *SelectBuilder) Validate() error {
@@ -483,4 +678,12 @@ func (s *SelectBuilder) Build() (string, error) {
 	}
 
 	return "", nil
+}
+
+// Prepare finalizes the SelectBuilder and returns a prepared SQL Statement
+// ready for execution, along with a function to validate argument types.
+func (u *SelectBuilder) Prepare() *Statement {
+	// First build the SQL query containing positional arguments ids
+	// and check that there are no errors during build stage
+	return nil
 }

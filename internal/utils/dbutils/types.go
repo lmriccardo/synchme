@@ -61,7 +61,29 @@ const (
 	DESC
 )
 
-type TypeValidatorFunc func(p map[string]any) (bool, []error)
+type ColumnOp int
+
+const (
+	NONE  ColumnOp = 0
+	COUNT ColumnOp = 1 << iota
+	SUM
+	AVG
+	MIN
+	MAX
+	UPPER
+	LOWER
+	DISTINCT
+)
+
+type JoinType int
+
+const (
+	INNER JoinType = iota
+	LEFT
+	RIGHT
+	FULL
+	CROSS
+)
 
 // Maps SQL drivers to placeholder style
 var PLACEHOLDER = map[string]string{
@@ -140,5 +162,47 @@ func (o OrderByType) String() string {
 		return "DESC"
 	default:
 		return fmt.Sprintf("UNKNOWN ORDER_BY TYPE(%d)", int(o))
+	}
+}
+
+func (op ColumnOp) String() string {
+	switch {
+	case op&COUNT != 0:
+		return "COUNT"
+	case op&SUM != 0:
+		return "SUM"
+	case op&AVG != 0:
+		return "AVG"
+	case op&MIN != 0:
+		return "MIN"
+	case op&MAX != 0:
+		return "MAX"
+	case op&UPPER != 0:
+		return "UPPER"
+	case op&LOWER != 0:
+		return "LOWER"
+	default:
+		return ""
+	}
+}
+
+func (op ColumnOp) HasDistinct() bool {
+	return op&DISTINCT != 0
+}
+
+func (j JoinType) String() string {
+	switch j {
+	case INNER:
+		return "INNER JOIN"
+	case LEFT:
+		return "LEFT JOIN"
+	case RIGHT:
+		return "RIGHT JOIN"
+	case FULL:
+		return "FULL JOIN"
+	case CROSS:
+		return "CROSS JOIN"
+	default:
+		return "UNKNOWN JOIN"
 	}
 }

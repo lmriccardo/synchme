@@ -212,3 +212,22 @@ func (s *Schema) GetPlaceholder(index int) string {
 
 	return fmt.Sprintf(pl, index)
 }
+
+// Insert initializes and returns a new SelectBuilder instance for constructing
+// an SQL SELECT statement against the associated schema.
+func (s *Schema) Select() *SelectBuilder {
+	builder := &SelectBuilder{
+		columns:        make(map[string]*select_column_t),
+		from:           make(map[string]*table_ref_t),
+		schema:         s,
+		where_clause_t: where_clause_t{},
+		range_clause_t: range_clause_t{
+			order: make(map[string]OrderByType),
+		},
+	}
+
+	builder.where_clause_t.parent = builder
+	builder.range_clause_t.parent = builder
+
+	return builder
+}
