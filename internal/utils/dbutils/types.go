@@ -46,12 +46,19 @@ var TYPE_MAP = map[reflect.Kind]DataType{
 	reflect.String:  TEXT,
 }
 
-type WhereOpType int
+type LogicalOpType int
 
 const (
-	AND WhereOpType = iota
+	AND LogicalOpType = iota
 	OR
 	NOT
+)
+
+type CondClauseType int
+
+const (
+	WHERE CondClauseType = iota
+	HAVING
 )
 
 type OrderByType int
@@ -141,8 +148,8 @@ func (a ForeignKeyAction) String() string {
 	}
 }
 
-func (w WhereOpType) String() string {
-	switch w {
+func (l LogicalOpType) String() string {
+	switch l {
 	case AND:
 		return "AND"
 	case OR:
@@ -150,7 +157,18 @@ func (w WhereOpType) String() string {
 	case NOT:
 		return "NOT"
 	default:
-		return fmt.Sprintf("UNKNOWN WHERE OP TYPE(%d)", int(w))
+		return fmt.Sprintf("UNKNOWN LOGICAL OP TYPE(%d)", int(l))
+	}
+}
+
+func (c CondClauseType) String() string {
+	switch c {
+	case WHERE:
+		return "WHERE"
+	case HAVING:
+		return "HAVING"
+	default:
+		return fmt.Sprintf("UNKNOWN COND CLAUSE TYPE(%d)", int(c))
 	}
 }
 
@@ -193,16 +211,16 @@ func (op ColumnOp) HasDistinct() bool {
 func (j JoinType) String() string {
 	switch j {
 	case INNER:
-		return "INNER JOIN"
+		return "INNER"
 	case LEFT:
-		return "LEFT JOIN"
+		return "LEFT"
 	case RIGHT:
-		return "RIGHT JOIN"
+		return "RIGHT"
 	case FULL:
-		return "FULL JOIN"
+		return "FULL"
 	case CROSS:
-		return "CROSS JOIN"
+		return "CROSS"
 	default:
-		return "UNKNOWN JOIN"
+		return "UNKNOWN"
 	}
 }

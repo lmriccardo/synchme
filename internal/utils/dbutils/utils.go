@@ -170,3 +170,9 @@ func normalizeArguments(args any) (map[string]any, error) {
 
 	return args.(map[string]any), nil
 }
+
+// IsSubquery checks if the given value can be treated as a subquery.
+func IsSubquery(value any) bool {
+	_, ok := any(value).(Buildable)
+	return ok
+}

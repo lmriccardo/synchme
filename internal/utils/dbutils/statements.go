@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/lmriccardo/synchme/internal/utils"
@@ -52,6 +53,32 @@ type Rangeable interface {
 	// by which the result set should be sorted.
 	// It takes the column name and the order type, and returns Rangeable.
 	OrderBy(string, OrderByType) Rangeable
+}
+
+// Whereable is a utility struct intended to be embedded in various SQL query builder
+// types (e.g., SelectBuilder, UpdateBuilder) to manage WHERE clause logic.
+type Whereable struct {
+	where *conditional_clause_t // Pointer to the abstract representation of the WHERE clause conditions.
+}
+
+// Where returns a new where group identifying by the input logical operation.
+// Possible operations are AND and OR. It returns the top-level condition group.
+func (w *Whereable) Where(op LogicalOpType) *condition_group_t {
+	w.where = NewConditionalClause(op)
+	return w.where.root
+}
+
+// Havingable is a utility struct intended to be embedded in various SQL query builder
+// types (e.g., SelectBuilder, UpdateBuilder) to manage HAVING clause logic.
+type Havingable struct {
+	having *conditional_clause_t // Pointer to the abstract representation of the HAVING clause conditions.
+}
+
+// Having returns a new Having group identifying by the input logical operation.
+// Possible operations are AND and OR. It returns the top-level condition group.
+func (h *Havingable) Having(op LogicalOpType) *condition_group_t {
+	h.having = NewConditionalClause(op)
+	return h.having.root
 }
 
 // Statement represents a prepared SQL statement. It holds the final query,
@@ -255,10 +282,11 @@ func (p *preparator_t) Prepare() *Statement {
 // the values for those columns, the target table, and clauses for filtering
 // (WHERE) and limiting the affected rows (RANGE).
 type UpdateBuilder struct {
+	Whereable // Embed the where clause into the Update builder
+
 	columns        map[string]any // Maps column names (string) to their new values for the SET clause.
 	parameters     []string       // Slice of column names used internally to manage the update order.
 	table          *Table         // Pointer to the target Table structure for the UPDATE operation.
-	where_clause_t                // Embedded structure managing the conditions for the WHERE clause.
 	range_clause_t                // Embedded structure managing ORDER BY, LIMIT, and OFFSET clauses.
 	preparator_t                  // Embedded structure for preparing the final SQL statement and arguments.
 }
@@ -324,7 +352,7 @@ func (u *UpdateBuilder) Validate() error {
 	}
 
 	// Check WHERE clause
-	errs = append(errs, u.ValidateColumns(u.table)...)
+	errs = append(errs, u.where.ValidateColumns(u.table)...)
 
 	if len(errs) == 0 {
 		return nil
@@ -347,12 +375,21 @@ func (u *UpdateBuilder) Build() (string, error) {
 	// Write the SET values in the string builder
 	sets := []string{}
 	for name, value := range u.columns {
-		// I need to map values to correct formatting for a
-		// a partial valid SQL query to be prepare in a future moment
-		if value != "?" {
-			value = SqlLiteral(value)
+		// First we need to check if the value is a subquery
+		if IsSubquery(value) {
+			if new_val, err := value.(Buildable).Build(); err != nil {
+				value = fmt.Sprintf("(%s)", new_val)
+			} else {
+				return "", err
+			}
 		} else {
-			value = fmt.Sprintf(":%s", name)
+			// I need to map values to correct formatting for a
+			// a partial valid SQL query to be prepare in a future moment
+			if value != "?" {
+				value = SqlLiteral(value)
+			} else {
+				value = fmt.Sprintf(":%s", name)
+			}
 		}
 
 		sets = append(sets, fmt.Sprintf("%s = %s", name, value))
@@ -364,13 +401,15 @@ func (u *UpdateBuilder) Build() (string, error) {
 	}
 
 	// Now put the WHERE clause
-	if sql := u.where_clause_t.ToSQLString(); sql != "" {
-		builder.WriteString(sql)
-		builder.WriteString("\n")
+	if u.where != nil && u.where.root != nil {
+		if sql := u.where.ToSQLString(WHERE); sql != "" {
+			builder.WriteString(sql)
+			builder.WriteString("\n")
+		}
 	}
 
 	// Then the rage limit clause (ORDER BY, LIMIT, OFFSET)
-	if sql := u.range_clause_t.ToSQLString(); sql != "" {
+	if sql := u.ToSQLString(); sql != "" {
 		builder.WriteString(sql)
 	}
 
@@ -440,6 +479,15 @@ func (i *InsertBuilder) Validate() error {
 			continue
 		}
 
+		// Check if the value is a subquery, if it is the case then
+		// we need to validate also the subquery
+		if IsSubquery(value) {
+			if err := value.(Buildable).Validate(); err != nil {
+				errs = append(errs, err)
+			}
+			continue
+		}
+
 		// Check if the current value is a string but does not starts
 		// with the named parameter prefix, or it is not a string at all
 		x, ok := value.(string)
@@ -475,6 +523,17 @@ func (i *InsertBuilder) Build() (string, error) {
 
 	for column, value := range i.columns {
 		columns = append(columns, column)
+
+		if IsSubquery(value) {
+			if new_val, err := value.(Buildable).Build(); err != nil {
+				values = append(values, fmt.Sprintf("(%s)", new_val))
+			} else {
+				return "", err
+			}
+
+			// If the query is a subquery then continue
+			continue
+		}
 
 		x, ok := value.(string)
 		if ok && x == "?" {
@@ -525,15 +584,19 @@ type join_t struct {
 // and embeds clauses for filtering (WHERE), ordering/limiting (RANGE),
 // and preparing the final SQL string.
 type SelectBuilder struct {
+	Whereable  // Embed WHERE clause into the Select builder
+	Havingable // Embed HAVING clause into the Select builder
+
 	columns map[string]*select_column_t // Maps keys to *select_column_t for all selected columns/expressions.
 	from    map[string]*table_ref_t     // Maps table aliases to *table_ref_t for all tables in the query.
 	joins   []*join_t                   // Slice of joins statements
+	groups  []string                    // Used in the GROUP BY clause of the SELECT
 
 	schema   *Schema // Reference to the entire Database Schema for context and validation.
 	distinct bool    // If the distinct operation is applied to query-level
 
-	where_clause_t // Embedded structure managing conditions for the WHERE clause.
 	range_clause_t // Embedded structure managing ORDER BY, LIMIT, and OFFSET clauses.
+	preparator_t
 }
 
 // Distinct sets the DISTINCT operator query-level
@@ -637,7 +700,7 @@ func (s *SelectBuilder) FromWithAlias(table, alias string) *SelectBuilder {
 // Join adds a new JOIN clause to the SELECT statement, specifying the table,
 // an optional alias, the type of join, and the ON condition expression.
 func (s *SelectBuilder) Join(target string, alias any,
-	join_type JoinType, expr string) *SelectBuilder {
+	join_type JoinType, on_expr string) *SelectBuilder {
 	// Construct and add the new join operation
 	s.joins = append(s.joins, &join_t{
 		join_type: join_type,
@@ -646,44 +709,202 @@ func (s *SelectBuilder) Join(target string, alias any,
 			alias:     alias,
 			has_alias: alias != nil,
 		},
-		condition: expr,
+		condition: on_expr,
 	})
 
 	return s
 }
 
-func (s *SelectBuilder) InnerJoin(target string, alias any, expr string) *SelectBuilder {
-	return s.Join(target, alias, INNER, expr)
+func (s *SelectBuilder) InnerJoin(target string, alias any, on_expr string) *SelectBuilder {
+	return s.Join(target, alias, INNER, on_expr)
 }
-func (s *SelectBuilder) LeftJoin(target string, alias any, expr string) *SelectBuilder {
-	return s.Join(target, alias, LEFT, expr)
+func (s *SelectBuilder) LeftJoin(target string, alias any, on_expr string) *SelectBuilder {
+	return s.Join(target, alias, LEFT, on_expr)
 }
-func (s *SelectBuilder) RightJoin(target string, alias any, expr string) *SelectBuilder {
-	return s.Join(target, alias, RIGHT, expr)
+func (s *SelectBuilder) RightJoin(target string, alias any, on_expr string) *SelectBuilder {
+	return s.Join(target, alias, RIGHT, on_expr)
 }
-func (s *SelectBuilder) FullJoin(target string, alias any, expr string) *SelectBuilder {
-	return s.Join(target, alias, FULL, expr)
+func (s *SelectBuilder) FullJoin(target string, alias any, on_expr string) *SelectBuilder {
+	return s.Join(target, alias, FULL, on_expr)
 }
-func (s *SelectBuilder) CrossJoin(target string, alias any, expr string) *SelectBuilder {
-	return s.Join(target, alias, CROSS, expr)
+func (s *SelectBuilder) CrossJoin(target string, alias any, on_expr string) *SelectBuilder {
+	return s.Join(target, alias, CROSS, on_expr)
+}
+
+// GroupBy adds one or more column names to the SELECT statement's GROUP BY clause.
+func (s *SelectBuilder) GroupBy(names ...string) *SelectBuilder {
+	// Add only those columns that do not belong to the group
+	for _, name := range names {
+		if !slices.Contains(s.groups, name) {
+			s.groups = append(s.groups, name)
+		}
+	}
+	return s
 }
 
 func (s *SelectBuilder) Validate() error {
 	return nil
 }
 
+// buildColumns Builds the columns for the SELECT statement
+func (s *SelectBuilder) buildColumns() string {
+	var builder strings.Builder
+
+	// If there are no columns, by default use the star operator
+	if len(s.columns) == 0 {
+		return "*"
+	}
+
+	// Otherwise, we need to add all columns
+	columns_index := 0
+	for _, column := range s.columns {
+		if columns_index > 0 {
+			builder.WriteString(", ")
+		}
+
+		columns_index++
+
+		// If the current column has an associated operation
+		// then we should format it as '<op>(<col_name>)'
+		if column.op != NONE {
+			builder.WriteString(column.op.String())
+			builder.WriteString("(")
+		}
+
+		// Take the table name and add the prefix to the col name
+		if column.table != "" {
+			builder.WriteString(column.table)
+			builder.WriteString(".")
+		}
+
+		// Write the column name
+		builder.WriteString(column.name)
+		if column.op != NONE {
+			builder.WriteString(")")
+		}
+
+		// Write the ALIAS if present
+		if column.has_alias {
+			builder.WriteString(" AS ")
+			if column.alias != "" {
+				builder.WriteString(fmt.Sprintf("%v", column.alias))
+			}
+		}
+	}
+
+	builder.WriteString("\n")
+	return builder.String()
+}
+
+// buildFromSection Builds the FROM section of the SELECT statement
+func (s *SelectBuilder) buildFromSection() string {
+	var builder strings.Builder
+
+	if len(s.from) == 0 {
+		return builder.String()
+	}
+
+	builder.WriteString("FROM ")
+	current_index := 0
+	for _, from_table := range s.from {
+		if current_index > 0 {
+			builder.WriteString(", ")
+		}
+		current_index++
+		builder.WriteString(from_table.name)
+		if from_table.has_alias {
+			builder.WriteString(" AS ")
+			builder.WriteString(fmt.Sprintf("%v", from_table.alias))
+		}
+	}
+
+	builder.WriteString("\n")
+
+	return builder.String()
+}
+
+// buildJoinSection Builds the JOIN section of the SELECT statement
+func (s *SelectBuilder) buildJoinSection() string {
+	var builder strings.Builder
+
+	for _, join := range s.joins {
+		builder.WriteString(join.join_type.String())
+		builder.WriteString(" JOIN ")
+		builder.WriteString(join.target.name)
+		if join.target.has_alias {
+			builder.WriteString(" AS ")
+			builder.WriteString(fmt.Sprintf("%v", join.target.alias))
+		}
+		if join.condition != "" {
+			builder.WriteString(" ON ")
+			builder.WriteString(join.condition)
+		}
+		builder.WriteString("\n")
+	}
+
+	return builder.String()
+}
+
+// Build builds the SQL operation for inserting into the database
 func (s *SelectBuilder) Build() (string, error) {
 	if err := s.Validate(); err != nil {
 		return "", err
 	}
 
-	return "", nil
+	var builder strings.Builder
+
+	// SELECT statement build process
+	builder.WriteString("SELECT ")
+	if s.distinct {
+		builder.WriteString("DISTINCT ")
+	}
+
+	// Write the columns used in the SELECT statement
+	builder.WriteString(s.buildColumns())
+	builder.WriteString(s.buildFromSection())
+	builder.WriteString(s.buildJoinSection())
+
+	// WHERE
+	if s.where != nil && s.where.root != nil {
+		if sql := s.where.ToSQLString(WHERE); sql != "" {
+			builder.WriteString(sql)
+			builder.WriteString("\n")
+		}
+	}
+
+	// GROUP BY
+	if len(s.groups) > 0 {
+		builder.WriteString("GROUP BY ")
+		builder.WriteString(strings.Join(s.groups, ", "))
+		builder.WriteString("\n")
+	}
+
+	// HAVING
+	if s.having != nil && s.having.root != nil {
+		if sql := s.having.ToSQLString(HAVING); sql != "" {
+			builder.WriteString(sql)
+			builder.WriteString("\n")
+		}
+	}
+
+	// Then the rage limit clause (ORDER BY, LIMIT, OFFSET)
+	if sql := s.ToSQLString(); sql != "" {
+		builder.WriteString(sql)
+	}
+
+	return builder.String(), nil
 }
 
 // Prepare finalizes the SelectBuilder and returns a prepared SQL Statement
 // ready for execution, along with a function to validate argument types.
-func (u *SelectBuilder) Prepare() *Statement {
+func (s *SelectBuilder) Prepare() *Statement {
 	// First build the SQL query containing positional arguments ids
 	// and check that there are no errors during build stage
-	return nil
+	if sql, err := s.Build(); err != nil {
+		fmt.Println(err)
+		return nil
+	} else {
+		s.sql = sql
+		return s.preparator_t.Prepare()
+	}
 }

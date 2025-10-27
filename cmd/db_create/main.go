@@ -62,16 +62,16 @@ func main() {
 
 	update := tbl.Update().
 		Set("name").
-		SetValue("age", 10).
-		Where().
+		SetValue("age", 10)
+
+	update.Where(dbutils.AND).
 		Cond("age > :min_age1").
-		Or().
+		StartOr().
 		Cond("age < :max_age1").
 		Not("other_table.id != 11").
-		EndGroup().
-		EndWhere().
-		OrderBy("name", dbutils.ASC).
-		Limit(10)
+		EndGroup()
+
+	update.OrderBy("name", dbutils.ASC).Limit(10)
 
 	PrintOperation(update)
 
@@ -106,4 +106,31 @@ func main() {
 
 		fmt.Println(row.Values())
 	}
+
+	select_bld := sch.Select().Distinct().
+		Columns("name", "id", "other_table.id").
+		ColumnWithAlias("age", "table_0_age").
+		ColumnWithOp("age", "max_age", dbutils.MAX).
+		From("files", "other_table").
+		LeftJoin("departments", "d", "u.department_id = d.id").
+		InnerJoin("orders", "o", "o.user_id = u.id")
+
+	select_bld.Where(dbutils.AND).
+		Cond("age > :min_age1").
+		StartOr().
+		Cond("age < :max_age1").
+		Not("other_table.id != 11").
+		EndGroup()
+
+	select_bld.GroupBy("u.id", "u.name", "d.name").
+		OrderBy("order_count", dbutils.DESC).
+		Limit(20)
+
+	sql, err := select_bld.Build()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println("Final SQL:")
+	fmt.Println(sql)
 }

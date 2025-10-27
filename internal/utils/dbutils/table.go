@@ -600,18 +600,16 @@ func (t *Table) Validate() (errs []error) {
 // an SQL UPDATE statement against the associated table.
 func (t *Table) Update() *UpdateBuilder {
 	builder := &UpdateBuilder{
-		columns:        make(map[string]any),
-		parameters:     []string{},
-		table:          t,
-		where_clause_t: where_clause_t{},
-		preparator_t:   preparator_t{table: t},
+		columns:      make(map[string]any),
+		parameters:   []string{},
+		table:        t,
+		preparator_t: preparator_t{table: t},
 		range_clause_t: range_clause_t{
 			order: make(map[string]OrderByType),
 		},
 	}
 
-	builder.where_clause_t.parent = builder
-	builder.range_clause_t.parent = builder
+	builder.parent = builder
 
 	return builder
 }

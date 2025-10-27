@@ -13,30 +13,28 @@ import (
 // It allows for combining multiple raw conditions and/or nested subgroups
 // using a logical operator (AND, OR, NOT).
 type condition_group_t struct {
-	op         WhereOpType          // The logical connection (AND OR)
+	op         LogicalOpType        // The logical connection (AND OR)
 	conds      []string             // Raw conditions
 	parameters []string             // The parameters of all conditions
 	subGroups  []*condition_group_t // Nested subgroup of conditions
 	negated    bool                 // The entire condition group is negated
-
-	parent *condition_group_t // Parent condition group of this group
-	where  *where_clause_t    // Parent where clause (only for the root group)
+	parent     *condition_group_t   // Parent condition group of this group
 }
 
 // And returns an new condition group for chaining AND conditions
-func (c *condition_group_t) And() *condition_group_t {
+func (c *condition_group_t) StartAnd() *condition_group_t {
 	return &condition_group_t{op: AND, parent: c}
 }
 
 // Or returns an new condition group for chaining OR conditions
-func (c *condition_group_t) Or() *condition_group_t {
+func (c *condition_group_t) StartOr() *condition_group_t {
 	return &condition_group_t{op: OR, parent: c}
 }
 
 // NotAnd returns an new condition group for chaining AND conditions
 // that is globally negated
 func (c *condition_group_t) NotAnd() *condition_group_t {
-	g := c.And()
+	g := c.StartAnd()
 	g.negated = true
 	return g
 }
@@ -44,7 +42,7 @@ func (c *condition_group_t) NotAnd() *condition_group_t {
 // NotOr returns an new condition group for chaining OR conditions
 // that is globally negated
 func (c *condition_group_t) NotOr() *condition_group_t {
-	g := c.Or()
+	g := c.StartOr()
 	g.negated = true
 	return g
 }
@@ -64,6 +62,23 @@ func (c *condition_group_t) Cond(expr string) *condition_group_t {
 	return c
 }
 
+// CondSubQuery adds a condition to the group that uses a
+// subquery on the right-hand side.
+func (c *condition_group_t) CondSubQuery(left, op string,
+	query *SelectBuilder, negated bool) *condition_group_t {
+
+	// First build the subquery and then add it as a simple condition
+	query_str, _ := query.Build()
+	condition := fmt.Sprintf("%s %s (%s)", left, op, query_str)
+
+	// If the condition is negated then use the NOT operator
+	if negated {
+		return c.Not(condition)
+	}
+
+	return c.Cond(condition)
+}
+
 // Not adds a negated condition to the current ConditionGroup.
 // It wraps the provided expression in "NOT (...)".
 func (c *condition_group_t) Not(expr string) *condition_group_t {
@@ -81,13 +96,6 @@ func (c *condition_group_t) EndGroup() *condition_group_t {
 	}
 
 	return nil
-}
-
-// EndWhere concludes the condition building for the current group and
-// return the WHERE parent actually ending also the WHERE clause. If the
-// group is not the top-level one it returns nil and the program breaks
-func (c *condition_group_t) EndWhere() Rangeable {
-	return c.where.End()
 }
 
 // ToSQLString creates the SQL string releated to this condition group
@@ -111,39 +119,27 @@ func (c *condition_group_t) ToSQLString() string {
 // whereClause_t encapsulates the entire WHERE clause structure for a
 // database operation. It also holds a reference to the parent database
 // operation to allow operation chaining fluently.
-type where_clause_t struct {
-	root   *condition_group_t // The top-level condition group
-	parent Rangeable          // The parent of the where clause
+type conditional_clause_t struct {
+	root *condition_group_t // The top-level condition group
 }
 
-// Where initializes and returns the top-level ConditionGroup for building
-// the WHERE clause. If the clause has not been started, it initializes it
-// with a default logical operator (usually AND). This method is used to begin
-// or continue chaining condition methods.
-func (w *where_clause_t) Where() *condition_group_t {
-	// Initialize a new Conditional group if nil
-	if w.root == nil {
-		w.root = &condition_group_t{op: AND, where: w}
+func NewConditionalClause(op LogicalOpType) *conditional_clause_t {
+	return &conditional_clause_t{
+		root: &condition_group_t{
+			op:     op,
+			parent: nil,
+		},
 	}
-
-	return w.root
-}
-
-// End signals the completion of the WHERE clause building process.
-// It returns the parent DB_Operation (e.g., SELECT, UPDATE) to allow
-// for further method chaining on the main operation object.
-func (w *where_clause_t) End() Rangeable {
-	return w.parent
 }
 
 // ToSQLString creates the SQL string releated to WHERE clause
-func (w *where_clause_t) ToSQLString() string {
+func (w *conditional_clause_t) ToSQLString(operation CondClauseType) string {
 	var builder strings.Builder
 
 	// Check that there is at least one condition
 	if len(w.root.conds) > 0 || len(w.root.subGroups) > 0 {
 		condition_s := w.root.ToSQLString()
-		builder.WriteString(fmt.Sprintf("WHERE %s", condition_s))
+		builder.WriteString(fmt.Sprintf("%s %s", operation, condition_s))
 	}
 
 	return builder.String()
@@ -151,7 +147,7 @@ func (w *where_clause_t) ToSQLString() string {
 
 // ValidateColumns validates all the columns used in the WHERE operation
 // and returns a list of errors for each column
-func (w *where_clause_t) ValidateColumns(t *Table) (errs []error) {
+func (w *conditional_clause_t) ValidateColumns(t *Table) (errs []error) {
 	// Create the column pattern for finding columns in conditions
 	pattern := regexp.MustCompile(
 		`\b([a-zA-Z_][a-zA-Z0-9_\.]*)\b\s*` +
